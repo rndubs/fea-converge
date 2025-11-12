@@ -298,6 +298,136 @@ class SHEBOOptimizer:
         )
         return next_x
 
+    def _get_next_batch(self, phase: str, batch_size: int) -> np.ndarray:
+        """Get batch of diverse points for parallel evaluation.
+
+        Args:
+            phase: Optimization phase
+            batch_size: Number of points to select
+
+        Returns:
+            Array of shape (batch_size, n_params)
+        """
+        return self.adaptive_acquisition.select_batch(
+            phase=phase,
+            batch_size=batch_size,
+            diversity_weight=0.5
+        )
+
+    def evaluate_batch(
+        self,
+        params_batch: List[np.ndarray]
+    ) -> List[Dict[str, Any]]:
+        """Evaluate a batch of parameter vectors.
+
+        This method can be overridden to implement parallel evaluation.
+        By default, evaluates sequentially.
+
+        Args:
+            params_batch: List of parameter vectors
+
+        Returns:
+            List of results from objective function
+        """
+        results = []
+        for params in params_batch:
+            result = self.objective_fn(params)
+            results.append(result)
+        return results
+
+    def run_batch(
+        self,
+        batch_size: int = 5,
+        parallel: bool = False
+    ) -> SHEBOResult:
+        """Run SHEBO optimization with batch evaluation.
+
+        Args:
+            batch_size: Number of points to evaluate in parallel
+            parallel: Whether to use parallel evaluation (requires override)
+
+        Returns:
+            SHEBOResult containing optimization results
+        """
+        print("=" * 60)
+        print("SHEBO Batch Optimization Starting")
+        print("=" * 60)
+        print(f"Budget: {self.budget} evaluations")
+        print(f"Initial samples: {self.n_init}")
+        print(f"Batch size: {batch_size}")
+        print(f"Parameter space dimension: {self.n_params}")
+        print()
+
+        # Phase 1: Space-filling initialization
+        print("Phase 1: Space-filling initialization")
+        self._initialize()
+
+        # Train initial surrogates
+        print("\nTraining initial surrogate models...")
+        self._update_surrogates()
+
+        # Phase 2: Main optimization loop with batches
+        print("\nPhase 2: Adaptive batch optimization")
+        print("-" * 60)
+
+        while self.iteration < self.budget:
+            # Determine optimization phase
+            phase = self._determine_phase()
+
+            # Discover constraints from recent failures
+            self._discover_constraints()
+
+            # Update surrogates (based on schedules)
+            self._update_surrogates()
+
+            # Get batch of points
+            batch_params = self._get_next_batch(phase, batch_size)
+
+            # Evaluate batch
+            batch_results = self.evaluate_batch(batch_params)
+
+            # Store all results
+            for params, result in zip(batch_params, batch_results):
+                self.iteration += 1
+                output = result['output']
+                performance = result.get('performance', float('inf'))
+                converged = output.get('convergence_status', False)
+
+                self.all_params.append(params)
+                self.all_outputs.append(output)
+                self.convergence_status.append(converged)
+                self.performance_values.append(performance)
+
+                # Update best
+                if converged and performance < self.best_performance:
+                    self.best_performance = performance
+                    self.best_params = params
+                    self.adaptive_acquisition.update_best_performance(performance)
+
+                if self.iteration >= self.budget:
+                    break
+
+            # Print progress
+            if self.iteration % 10 == 0 or self.iteration >= self.budget:
+                self._print_progress()
+
+            # Save checkpoint periodically
+            if (self.checkpoint_dir is not None and
+                self.iteration % self.checkpoint_frequency == 0):
+                self.save_checkpoint()
+
+            # Check termination criteria
+            if self._check_termination():
+                print(f"\nEarly termination at iteration {self.iteration}")
+                if self.checkpoint_dir is not None:
+                    self.save_checkpoint()
+                break
+
+        # Final summary
+        self._print_final_summary()
+
+        return self._create_result()
+
     def _check_termination(self) -> bool:
         """Check termination criteria.
 

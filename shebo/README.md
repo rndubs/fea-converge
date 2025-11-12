@@ -4,11 +4,31 @@ SHEBO is a machine learning-based optimization framework that combines neural ne
 
 ## Key Features
 
-- **Ensemble Surrogate Modeling**: Uses multiple neural networks with uncertainty quantification
+- **Ensemble Surrogate Modeling**: Uses multiple neural networks with uncertainty quantification (each network trained independently for maximum diversity)
 - **Constraint Discovery**: Automatically discovers and models hidden failure modes
 - **Adaptive Acquisition**: Balances exploration, exploitation, and boundary learning
+- **Feature Normalization**: Robust StandardScaler preprocessing for vastly different parameter scales
+- **Comprehensive Data Validation**: Automatic checks for NaN/Inf, class imbalance, and minimum samples
+- **Checkpointing**: Save and resume optimization state for crash recovery
+- **Batch Parallelization**: Evaluate multiple points simultaneously for faster optimization
 - **Production Ready**: Lightweight deployment for real-time predictions
 - **Transfer Learning**: Share knowledge across similar problems
+
+## Recent Improvements (2024)
+
+SHEBO has undergone comprehensive review and fixes for all critical issues:
+
+- ✅ **Fixed ensemble training**: Each network now trains independently with separate optimizers, ensuring true diversity
+- ✅ **Feature normalization**: Handles vastly different parameter scales (1e-8 to 1e10) with StandardScaler
+- ✅ **Robust device handling**: Full GPU/CPU support with consistent device management
+- ✅ **Iteration-based tracking**: Fixed sample counting for correct model update schedules
+- ✅ **Data validation**: Comprehensive checks for data quality, NaN/Inf, and class balance
+- ✅ **Proper logging**: Python logging throughout instead of print statements
+- ✅ **Checkpointing**: Save and resume optimization progress
+- ✅ **Batch API**: Parallel evaluation support with diversity-aware selection
+- ✅ **Enhanced tests**: Comprehensive correctness tests including ensemble diversity, normalization, and optimization improvement
+
+See [CRITICAL_REVIEW.md](CRITICAL_REVIEW.md) for detailed fix documentation.
 
 ## Installation
 

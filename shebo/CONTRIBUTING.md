@@ -284,12 +284,74 @@ def objective_function(params: np.ndarray) -> Dict[str, Any]:
 - Keep lines under 100 characters
 - Use meaningful variable names
 
+### Development Best Practices
+
+Based on comprehensive code review and fixes, follow these critical practices:
+
+#### Ensemble Training
+- ✅ **DO**: Train each network independently with separate optimizers
+- ✅ **DO**: Use manual optimization mode in PyTorch Lightning
+- ❌ **DON'T**: Average losses and backpropagate once (defeats ensemble diversity)
+
+```python
+# GOOD: Independent training
+def training_step(self, batch, batch_idx):
+    optimizers = self.optimizers()
+    for network, optimizer in zip(self.networks, optimizers):
+        optimizer.zero_grad()
+        loss = compute_loss(network(x), y)
+        self.manual_backward(loss)
+        optimizer.step()
+
+# BAD: Shared gradients
+def training_step(self, batch, batch_idx):
+    total_loss = sum(compute_loss(net(x), y) for net in self.networks)
+    return total_loss  # All networks get same gradients!
+```
+
+#### Feature Normalization
+- ✅ **DO**: Always normalize features when ranges span multiple orders of magnitude
+- ✅ **DO**: Use StandardScaler for neural networks
+- ✅ **DO**: Fit normalizer once on first batch, then transform consistently
+- ❌ **DON'T**: Pass raw features with scales like 1e-8 to 1e10 to neural networks
+
+#### Device Management
+- ✅ **DO**: Move models to device on initialization
+- ✅ **DO**: Move data to device before training
+- ✅ **DO**: Ensure device consistency in predictions
+- ❌ **DON'T**: Assume CPU-only usage
+
+#### Data Validation
+- ✅ **DO**: Check for NaN/Inf before training
+- ✅ **DO**: Validate minimum samples per class for classification
+- ✅ **DO**: Warn about severe class imbalance
+- ✅ **DO**: Use constants for magic numbers (MIN_SAMPLES_FOR_TRAINING = 10)
+
+#### Logging and Error Handling
+- ✅ **DO**: Use Python logging module, not print statements
+- ✅ **DO**: Catch specific exceptions (RuntimeError, ValueError)
+- ✅ **DO**: Log at appropriate levels (debug, info, warning, error)
+- ❌ **DON'T**: Use broad `except Exception` that hides bugs
+- ❌ **DON'T**: Use print() for library code
+
+#### Iteration vs Sample Counting
+- ✅ **DO**: Track iterations explicitly for model update schedules
+- ✅ **DO**: Pass iteration count to update functions
+- ❌ **DON'T**: Accumulate sample counts that don't represent actual new samples
+
+#### Checkpointing
+- ✅ **DO**: Save optimization state periodically
+- ✅ **DO**: Include random state for reproducibility
+- ✅ **DO**: Provide both automatic and manual checkpoint methods
+
 ### Testing Requirements
 
 - All new code must have accompanying tests
 - Maintain or improve code coverage
 - Tests should be independent and reproducible
 - Use fixtures for common test setup
+- **Test correctness, not just structure** (e.g., verify ensemble diversity, not just that it runs)
+- Test edge cases: small datasets, imbalanced data, NaN/Inf values
 
 ### Documentation
 
