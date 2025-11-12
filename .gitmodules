@@ -1,0 +1,3 @@
+[submodule "smith"]
+	path = smith
+	url = https://github.com/LLNL/smith.git
