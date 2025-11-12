@@ -42,6 +42,9 @@ class ConvergenceEnsemble(pl.LightningModule):
         ])
         self.learning_rate = learning_rate
 
+        # Disable automatic optimization for manual training of each network
+        self.automatic_optimization = False
+
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Get predictions from all networks.
 
@@ -59,7 +62,7 @@ class ConvergenceEnsemble(pl.LightningModule):
         batch: Tuple[torch.Tensor, torch.Tensor],
         batch_idx: int
     ) -> torch.Tensor:
-        """Training step.
+        """Training step with independent network updates.
 
         Args:
             batch: Tuple of (features, labels)
@@ -69,17 +72,31 @@ class ConvergenceEnsemble(pl.LightningModule):
             Average loss across all networks
         """
         x, y = batch
-        predictions = self(x)
 
-        # Train each network independently
-        losses = []
-        for pred in predictions:
+        # Get optimizers (one per network)
+        optimizers = self.optimizers()
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+
+        # Train each network independently with separate backward passes
+        total_loss = 0.0
+        for network, optimizer in zip(self.networks, optimizers):
+            optimizer.zero_grad()
+
+            # Forward pass for this network only
+            pred = network(x)
             loss = nn.BCELoss()(pred, y)
-            losses.append(loss)
 
-        total_loss = sum(losses) / len(losses)
-        self.log('train_loss', total_loss, prog_bar=True)
-        return total_loss
+            # Backward pass for this network only
+            self.manual_backward(loss)
+            optimizer.step()
+
+            total_loss += loss.detach()
+
+        # Average loss for logging
+        avg_loss = total_loss / len(self.networks)
+        self.log('train_loss', avg_loss, prog_bar=True)
+        return avg_loss
 
     def validation_step(
         self,
@@ -107,9 +124,16 @@ class ConvergenceEnsemble(pl.LightningModule):
         self.log('val_loss', val_loss, prog_bar=True)
         return val_loss
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        """Configure optimizer."""
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    def configure_optimizers(self) -> List[torch.optim.Optimizer]:
+        """Configure separate optimizer for each network.
+
+        Returns:
+            List of optimizers, one per network for independent training
+        """
+        return [
+            torch.optim.Adam(network.parameters(), lr=self.learning_rate)
+            for network in self.networks
+        ]
 
     def predict_with_uncertainty(
         self,
@@ -132,6 +156,7 @@ class ConvergenceEnsemble(pl.LightningModule):
 
         with torch.no_grad():
             for network in self.networks:
+                network.eval()  # Ensure each network is in eval mode
                 pred = network(x)
                 predictions.append(pred)
 
@@ -162,13 +187,13 @@ class ConvergenceEnsemble(pl.LightningModule):
 class PerformanceEnsemble(pl.LightningModule):
     """Ensemble of performance neural networks for regression.
 
-    Predicts log-transformed iteration count and solve time with uncertainty.
+    Predicts log-transformed performance metrics with uncertainty.
     """
 
     def __init__(
         self,
         input_dim: int,
-        output_dim: int = 2,
+        output_dim: int = 1,  # Changed from 2 to 1 by default
         n_networks: int = 5,
         hidden_dims: List[int] = [128, 64, 32],
         dropout: float = 0.2,
@@ -178,7 +203,7 @@ class PerformanceEnsemble(pl.LightningModule):
 
         Args:
             input_dim: Dimension of input features
-            output_dim: Number of outputs (default: 2 for iterations and time)
+            output_dim: Number of outputs (default: 1 for single performance metric)
             n_networks: Number of networks in ensemble
             hidden_dims: Hidden layer dimensions
             dropout: Dropout rate
@@ -193,6 +218,9 @@ class PerformanceEnsemble(pl.LightningModule):
         ])
         self.learning_rate = learning_rate
 
+        # Disable automatic optimization for manual training
+        self.automatic_optimization = False
+
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Get predictions from all networks."""
         predictions = [net(x) for net in self.networks]
@@ -203,18 +231,30 @@ class PerformanceEnsemble(pl.LightningModule):
         batch: Tuple[torch.Tensor, torch.Tensor],
         batch_idx: int
     ) -> torch.Tensor:
-        """Training step with MSE loss."""
+        """Training step with independent network updates."""
         x, y = batch
-        predictions = self(x)
 
-        losses = []
-        for pred in predictions:
+        # Get optimizers (one per network)
+        optimizers = self.optimizers()
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+
+        # Train each network independently
+        total_loss = 0.0
+        for network, optimizer in zip(self.networks, optimizers):
+            optimizer.zero_grad()
+
+            pred = network(x)
             loss = nn.MSELoss()(pred, y)
-            losses.append(loss)
 
-        total_loss = sum(losses) / len(losses)
-        self.log('train_loss', total_loss, prog_bar=True)
-        return total_loss
+            self.manual_backward(loss)
+            optimizer.step()
+
+            total_loss += loss.detach()
+
+        avg_loss = total_loss / len(self.networks)
+        self.log('train_loss', avg_loss, prog_bar=True)
+        return avg_loss
 
     def validation_step(
         self,
@@ -234,9 +274,16 @@ class PerformanceEnsemble(pl.LightningModule):
         self.log('val_loss', val_loss, prog_bar=True)
         return val_loss
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        """Configure optimizer."""
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    def configure_optimizers(self) -> List[torch.optim.Optimizer]:
+        """Configure separate optimizer for each network.
+
+        Returns:
+            List of optimizers, one per network for independent training
+        """
+        return [
+            torch.optim.Adam(network.parameters(), lr=self.learning_rate)
+            for network in self.networks
+        ]
 
     def predict_with_uncertainty(
         self,
@@ -252,6 +299,7 @@ class PerformanceEnsemble(pl.LightningModule):
 
         with torch.no_grad():
             for network in self.networks:
+                network.eval()  # Ensure each network is in eval mode
                 pred = network(x)
                 predictions.append(pred)
 

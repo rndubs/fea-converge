@@ -93,22 +93,40 @@ class AdaptiveAcquisition:
         """
         try:
             perf_pred = self.surrogate_manager.predict(x, 'performance')
-            mean = perf_pred['mean'][:, 0]  # First output (log iterations)
-            std = torch.sqrt(perf_pred['uncertainty'][:, 0])
+            mean = perf_pred['mean'].squeeze()  # Single output
+            uncertainty = perf_pred['uncertainty'].squeeze()
+
+            # Handle edge case where uncertainty is zero or very small
+            std = torch.sqrt(uncertainty + 1e-8)
 
             # EI calculation (for minimization)
-            z = (self.best_performance - mean - xi) / (std + 1e-8)
+            improvement = self.best_performance - mean - xi
+            z = improvement / (std + 1e-8)
 
-            # Approximate CDF and PDF using error function
-            from torch.distributions import Normal
-            normal = Normal(0, 1)
+            # Compute EI using standard normal CDF and PDF
+            # Using error function approximation for numerical stability
+            from torch.special import erf
 
-            ei = (self.best_performance - mean - xi) * normal.cdf(z) + std * torch.exp(normal.log_prob(z))
+            # CDF(z) = 0.5 * (1 + erf(z / sqrt(2)))
+            cdf_z = 0.5 * (1.0 + erf(z / np.sqrt(2)))
+
+            # PDF(z) = exp(-z^2 / 2) / sqrt(2 * pi)
+            pdf_z = torch.exp(-0.5 * z ** 2) / np.sqrt(2 * np.pi)
+
+            ei = improvement * cdf_z + std * pdf_z
             ei = torch.clamp(ei, min=0)
 
+            # Handle NaN values
+            ei = torch.nan_to_num(ei, nan=0.0)
+
             return ei
-        except Exception:
-            # If performance model not ready, return zeros
+
+        except (RuntimeError, ValueError, AttributeError) as e:
+            # Performance model not ready or other specific errors
+            import logging
+            logging.getLogger(__name__).debug(
+                f"Could not compute EI, returning zeros: {str(e)}"
+            )
             return torch.zeros(len(x))
 
     def _compute_boundary_proximity(

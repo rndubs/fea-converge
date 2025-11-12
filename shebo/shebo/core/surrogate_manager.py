@@ -2,11 +2,22 @@
 
 from typing import Any, Dict, Optional, List
 import torch
+import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+import logging
 
 from shebo.models.ensemble import ConvergenceEnsemble, PerformanceEnsemble
+from shebo.utils.preprocessing import FeatureNormalizer
+
+# Configure logger
+logger = logging.getLogger(__name__)
+
+# Constants
+MIN_SAMPLES_FOR_TRAINING = 10
+MIN_SAMPLES_PER_CLASS = 3
+SEVERE_IMBALANCE_RATIO = 10
 
 
 class SurrogateManager:
@@ -14,6 +25,7 @@ class SurrogateManager:
 
     Coordinates convergence, performance, and constraint surrogates,
     updating them on different schedules based on computational cost.
+    Includes feature normalization and comprehensive data validation.
     """
 
     def __init__(
@@ -32,9 +44,9 @@ class SurrogateManager:
         Args:
             input_dim: Dimension of input features
             n_networks: Number of networks in each ensemble
-            convergence_update_freq: Retrain convergence model every N samples
-            performance_update_freq: Retrain performance model every N samples
-            constraint_update_freq: Retrain constraint models every N samples
+            convergence_update_freq: Retrain convergence model every N iterations
+            performance_update_freq: Retrain performance model every N iterations
+            constraint_update_freq: Retrain constraint models every N iterations
             max_epochs: Maximum training epochs
             early_stop_patience: Early stopping patience
             device: Device to use ('cuda', 'cpu', or None for auto-detect)
@@ -50,21 +62,36 @@ class SurrogateManager:
         else:
             self.device = device
 
+        logger.info(f"SurrogateManager using device: {self.device}")
+
+        # Initialize feature normalizer
+        self.normalizer = FeatureNormalizer()
+
         # Initialize models
         self.models: Dict[str, Any] = {
-            'convergence': ConvergenceEnsemble(input_dim, n_networks),
-            'performance': PerformanceEnsemble(input_dim, n_networks=n_networks),
+            'convergence': ConvergenceEnsemble(input_dim, n_networks).to(self.device),
+            'performance': PerformanceEnsemble(
+                input_dim,
+                output_dim=1,  # Single output by default
+                n_networks=n_networks
+            ).to(self.device),
             'constraints': {}  # Dynamically added as discovered
         }
 
-        # Update schedules
+        # Update schedules (iteration-based, not sample-based)
         self.update_schedules = {
             'convergence': convergence_update_freq,
             'performance': performance_update_freq,
             'constraints': constraint_update_freq
         }
 
-        self.sample_count = 0
+        # Track last update iteration for each model
+        self.last_update = {
+            'convergence': 0,
+            'performance': 0,
+            'constraints': {}
+        }
+
         self.training_history: Dict[str, List[float]] = {}
 
     def add_constraint(
@@ -83,14 +110,19 @@ class SurrogateManager:
         else:
             model = PerformanceEnsemble(self.input_dim, n_networks=self.n_networks)
 
+        # Move to device immediately
+        model = model.to(self.device)
         self.models['constraints'][name] = model
-        print(f"New constraint discovered and added: {name}")
+        self.last_update['constraints'][name] = 0
 
-    def should_update(self, model_name: str) -> bool:
-        """Check if model should be updated based on sample count.
+        logger.info(f"New constraint discovered and added: {name}")
+
+    def should_update(self, model_name: str, current_iteration: int) -> bool:
+        """Check if model should be updated based on iteration count.
 
         Args:
             model_name: Name of the model to check
+            current_iteration: Current optimization iteration
 
         Returns:
             True if model should be updated
@@ -99,7 +131,9 @@ class SurrogateManager:
             return False  # Constraints checked individually
 
         freq = self.update_schedules[model_name]
-        return self.sample_count % freq == 0 and self.sample_count > 0
+        iterations_since_last = current_iteration - self.last_update[model_name]
+
+        return iterations_since_last >= freq and current_iteration > 0
 
     def update_models(
         self,
@@ -107,6 +141,7 @@ class SurrogateManager:
         y_convergence: torch.Tensor,
         y_performance: Optional[torch.Tensor] = None,
         y_constraints: Optional[Dict[str, torch.Tensor]] = None,
+        current_iteration: int = 0,
         batch_size: int = 32,
         val_split: float = 0.2
     ) -> None:
@@ -115,16 +150,26 @@ class SurrogateManager:
         Args:
             X: Input features tensor of shape (n_samples, input_dim)
             y_convergence: Convergence labels of shape (n_samples, 1)
-            y_performance: Performance targets of shape (n_samples, 2), optional
+            y_performance: Performance targets of shape (n_samples, 1), optional
             y_constraints: Dictionary of constraint labels, optional
+            current_iteration: Current optimization iteration
             batch_size: Batch size for training
             val_split: Validation split fraction
         """
-        self.sample_count += len(X)
+        # Fit normalizer on first call
+        X_np = X.numpy() if isinstance(X, torch.Tensor) else X
+        if not self.normalizer.fitted:
+            self.normalizer.fit(X_np)
+            logger.info("Feature normalizer fitted to data")
+
+        # Normalize features
+        X_normalized = self.normalizer.transform(X_np)
+        X = torch.tensor(X_normalized, dtype=torch.float32)
 
         # Update convergence model
-        if self.should_update('convergence'):
-            print(f"Updating convergence model at sample {self.sample_count}")
+        if self.should_update('convergence', current_iteration):
+            self.last_update['convergence'] = current_iteration
+            logger.info(f"Updating convergence model at iteration {current_iteration}")
             self._train_model(
                 self.models['convergence'],
                 X,
@@ -135,14 +180,15 @@ class SurrogateManager:
             )
 
         # Update performance model
-        if self.should_update('performance') and y_performance is not None:
+        if self.should_update('performance', current_iteration) and y_performance is not None:
             # Only train on successful convergences
             success_mask = y_convergence.squeeze() == 1
-            if success_mask.sum() > 10:  # Need at least 10 successful samples
+            if success_mask.sum() > MIN_SAMPLES_FOR_TRAINING:
                 X_success = X[success_mask]
                 y_perf_success = y_performance[success_mask]
 
-                print(f"Updating performance model at sample {self.sample_count}")
+                self.last_update['performance'] = current_iteration
+                logger.info(f"Updating performance model at iteration {current_iteration}")
                 self._train_model(
                     self.models['performance'],
                     X_success,
@@ -151,13 +197,25 @@ class SurrogateManager:
                     val_split,
                     'performance'
                 )
+            else:
+                logger.warning(
+                    f"Insufficient successful samples ({success_mask.sum()}) "
+                    f"to train performance model"
+                )
 
         # Update constraint models
         if y_constraints is not None:
             for con_name, con_labels in y_constraints.items():
                 if con_name in self.models['constraints']:
-                    if self.sample_count % self.update_schedules['constraints'] == 0:
-                        print(f"Updating constraint model '{con_name}' at sample {self.sample_count}")
+                    iterations_since = (current_iteration -
+                                       self.last_update['constraints'].get(con_name, 0))
+
+                    if iterations_since >= self.update_schedules['constraints']:
+                        self.last_update['constraints'][con_name] = current_iteration
+                        logger.info(
+                            f"Updating constraint model '{con_name}' "
+                            f"at iteration {current_iteration}"
+                        )
                         self._train_model(
                             self.models['constraints'][con_name],
                             X,
@@ -166,6 +224,63 @@ class SurrogateManager:
                             val_split,
                             f'constraint_{con_name}'
                         )
+
+    def _validate_training_data(
+        self,
+        X: torch.Tensor,
+        y: torch.Tensor,
+        model_name: str
+    ) -> bool:
+        """Validate training data quality.
+
+        Args:
+            X: Input features
+            y: Target labels
+            model_name: Name of model for logging
+
+        Returns:
+            True if data is valid for training
+        """
+        # Check for NaN/Inf in features
+        if torch.isnan(X).any() or torch.isinf(X).any():
+            logger.warning(f"NaN/Inf in features for {model_name}, skipping training")
+            return False
+
+        # Check for NaN/Inf in labels
+        if torch.isnan(y).any() or torch.isinf(y).any():
+            logger.warning(f"NaN/Inf in labels for {model_name}, skipping training")
+            return False
+
+        # Check minimum samples
+        n_samples = len(X)
+        if n_samples < MIN_SAMPLES_FOR_TRAINING:
+            logger.warning(
+                f"Only {n_samples} samples for {model_name} "
+                f"(min: {MIN_SAMPLES_FOR_TRAINING}), skipping training"
+            )
+            return False
+
+        # For binary classification, check class balance
+        if len(y.shape) == 2 and y.shape[1] == 1:
+            n_positive = (y == 1).sum().item()
+            n_negative = (y == 0).sum().item()
+
+            if n_positive < MIN_SAMPLES_PER_CLASS or n_negative < MIN_SAMPLES_PER_CLASS:
+                logger.warning(
+                    f"Insufficient samples per class for {model_name} "
+                    f"(pos: {n_positive}, neg: {n_negative}), skipping training"
+                )
+                return False
+
+            # Warn about severe imbalance
+            imbalance_ratio = max(n_positive, n_negative) / min(n_positive, n_negative)
+            if imbalance_ratio > SEVERE_IMBALANCE_RATIO:
+                logger.warning(
+                    f"Severe class imbalance for {model_name} "
+                    f"({imbalance_ratio:.1f}:1)"
+                )
+
+        return True
 
     def _train_model(
         self,
@@ -176,19 +291,36 @@ class SurrogateManager:
         val_split: float,
         model_name: str
     ) -> None:
-        """Train a single model.
+        """Train a single model with validation and error handling.
 
         Args:
             model: PyTorch Lightning module to train
-            X: Input features
+            X: Input features (already normalized)
             y: Target labels
             batch_size: Batch size
             val_split: Validation split
             model_name: Name for logging
         """
-        # Split into train and validation
+        # Validate data
+        if not self._validate_training_data(X, y, model_name):
+            return
+
+        # Move data to device
+        X = X.to(self.device)
+        y = y.to(self.device)
+
+        # Ensure model is on correct device
+        model = model.to(self.device)
+
+        # Adjust validation split for small datasets
         n_samples = len(X)
-        n_val = int(n_samples * val_split)
+        if n_samples < 50:
+            # Ensure at least 5 validation samples
+            val_split = max(0.1, min(0.2, 5 / n_samples))
+            logger.info(f"Adjusted val_split to {val_split:.2f} for {n_samples} samples")
+
+        # Split into train and validation
+        n_val = max(1, int(n_samples * val_split))
         n_train = n_samples - n_val
 
         indices = torch.randperm(n_samples)
@@ -228,13 +360,26 @@ class SurrogateManager:
             devices=1
         )
 
-        # Train
-        trainer.fit(model, train_loader, val_loader)
+        try:
+            # Train
+            trainer.fit(model, train_loader, val_loader)
 
-        # Store training history
-        if model_name not in self.training_history:
-            self.training_history[model_name] = []
-        self.training_history[model_name].append(checkpoint.best_model_score.item())
+            # Store training history
+            if checkpoint.best_model_score is not None:
+                if model_name not in self.training_history:
+                    self.training_history[model_name] = []
+                self.training_history[model_name].append(
+                    checkpoint.best_model_score.item()
+                )
+                logger.info(
+                    f"Model {model_name} trained. "
+                    f"Best val loss: {checkpoint.best_model_score.item():.6f}"
+                )
+            else:
+                logger.warning(f"Training completed but no best_model_score for {model_name}")
+
+        except Exception as e:
+            logger.error(f"Error training model {model_name}: {str(e)}")
 
     def predict(
         self,
@@ -244,15 +389,22 @@ class SurrogateManager:
         """Get predictions from specific model.
 
         Args:
-            x: Input features
+            x: Input features (will be normalized internally)
             model_name: Name of model ('convergence', 'performance', or constraint name)
 
         Returns:
             Dictionary with predictions and uncertainty
         """
+        # Normalize input if normalizer is fitted
+        if self.normalizer.fitted:
+            x_np = x.detach().cpu().numpy() if x.is_cuda else x.numpy()
+            x_normalized = self.normalizer.transform(x_np)
+            x = torch.tensor(x_normalized, dtype=torch.float32)
+
         # Move to device
         x = x.to(self.device)
 
+        # Get model
         if model_name == 'convergence':
             model = self.models['convergence']
         elif model_name == 'performance':
@@ -262,7 +414,10 @@ class SurrogateManager:
         else:
             raise ValueError(f"Unknown model: {model_name}")
 
+        # Ensure model is on correct device
         model = model.to(self.device)
+
+        # Predict
         return model.predict_with_uncertainty(x)
 
     def get_model(self, model_name: str) -> pl.LightningModule:
@@ -273,6 +428,9 @@ class SurrogateManager:
 
         Returns:
             The model
+
+        Raises:
+            ValueError: If model name is unknown
         """
         if model_name == 'convergence':
             return self.models['convergence']
@@ -284,12 +442,14 @@ class SurrogateManager:
             raise ValueError(f"Unknown model: {model_name}")
 
     def save_models(self, save_dir: str) -> None:
-        """Save all models to directory.
+        """Save all models and normalizer to directory.
 
         Args:
             save_dir: Directory to save models
         """
         import os
+        import pickle
+
         os.makedirs(save_dir, exist_ok=True)
 
         # Save convergence model
@@ -311,30 +471,47 @@ class SurrogateManager:
                 os.path.join(save_dir, f'constraint_{con_name}.pth')
             )
 
-        print(f"Models saved to {save_dir}")
+        # Save normalizer
+        with open(os.path.join(save_dir, 'normalizer.pkl'), 'wb') as f:
+            pickle.dump(self.normalizer, f)
+
+        logger.info(f"Models saved to {save_dir}")
 
     def load_models(self, save_dir: str) -> None:
-        """Load all models from directory.
+        """Load all models and normalizer from directory.
 
         Args:
             save_dir: Directory containing saved models
         """
         import os
+        import pickle
 
         # Load convergence model
         conv_path = os.path.join(save_dir, 'convergence.pth')
         if os.path.exists(conv_path):
-            self.models['convergence'].load_state_dict(torch.load(conv_path))
+            self.models['convergence'].load_state_dict(
+                torch.load(conv_path, map_location=self.device)
+            )
 
         # Load performance model
         perf_path = os.path.join(save_dir, 'performance.pth')
         if os.path.exists(perf_path):
-            self.models['performance'].load_state_dict(torch.load(perf_path))
+            self.models['performance'].load_state_dict(
+                torch.load(perf_path, map_location=self.device)
+            )
 
         # Load constraint models
         for con_name in self.models['constraints'].keys():
             con_path = os.path.join(save_dir, f'constraint_{con_name}.pth')
             if os.path.exists(con_path):
-                self.models['constraints'][con_name].load_state_dict(torch.load(con_path))
+                self.models['constraints'][con_name].load_state_dict(
+                    torch.load(con_path, map_location=self.device)
+                )
 
-        print(f"Models loaded from {save_dir}")
+        # Load normalizer
+        normalizer_path = os.path.join(save_dir, 'normalizer.pkl')
+        if os.path.exists(normalizer_path):
+            with open(normalizer_path, 'rb') as f:
+                self.normalizer = pickle.load(f)
+
+        logger.info(f"Models loaded from {save_dir}")

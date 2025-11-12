@@ -40,6 +40,8 @@ class SHEBOOptimizer:
         convergence_update_freq: int = 10,
         performance_update_freq: int = 10,
         constraint_update_freq: int = 50,
+        checkpoint_dir: Optional[str] = None,
+        checkpoint_frequency: int = 10,
         random_seed: Optional[int] = None
     ):
         """Initialize SHEBO optimizer.
@@ -55,6 +57,8 @@ class SHEBOOptimizer:
             convergence_update_freq: Update frequency for convergence model
             performance_update_freq: Update frequency for performance model
             constraint_update_freq: Update frequency for constraint models
+            checkpoint_dir: Directory to save checkpoints (None to disable)
+            checkpoint_frequency: Save checkpoint every N iterations
             random_seed: Random seed for reproducibility
         """
         self.bounds = bounds
@@ -62,6 +66,8 @@ class SHEBOOptimizer:
         self.n_init = n_init
         self.budget = budget
         self.random_seed = random_seed
+        self.checkpoint_dir = checkpoint_dir
+        self.checkpoint_frequency = checkpoint_frequency
 
         if random_seed is not None:
             np.random.seed(random_seed)
@@ -144,9 +150,17 @@ class SHEBOOptimizer:
             if self.iteration % 10 == 0 or self.iteration == self.budget:
                 self._print_progress()
 
+            # Save checkpoint periodically
+            if (self.checkpoint_dir is not None and
+                self.iteration % self.checkpoint_frequency == 0):
+                self.save_checkpoint()
+
             # Check termination criteria
             if self._check_termination():
                 print(f"\nEarly termination at iteration {self.iteration}")
+                # Save final checkpoint
+                if self.checkpoint_dir is not None:
+                    self.save_checkpoint()
                 break
 
         # Final summary
@@ -232,13 +246,9 @@ class SHEBOOptimizer:
         if any(self.convergence_status):
             # Log transform for stability
             perf_array = np.array(self.performance_values)
-            # Extract iteration count and time if available, else use performance
+            # Single output: log-transformed performance metric
             perf_log = np.log1p(perf_array).reshape(-1, 1)
-            # Duplicate to match expected shape (iterations, time)
-            y_performance = torch.tensor(
-                np.hstack([perf_log, perf_log]),
-                dtype=torch.float32
-            )
+            y_performance = torch.tensor(perf_log, dtype=torch.float32)
 
         # Constraint labels
         y_constraints = None
@@ -256,7 +266,8 @@ class SHEBOOptimizer:
             X,
             y_convergence,
             y_performance,
-            y_constraints
+            y_constraints,
+            current_iteration=self.iteration
         )
 
     def _determine_phase(self) -> str:
@@ -386,3 +397,77 @@ class SHEBOOptimizer:
             all_params=self.all_params.copy(),
             all_outputs=self.all_outputs.copy()
         )
+
+    def save_checkpoint(self, filepath: Optional[str] = None) -> None:
+        """Save optimization checkpoint.
+
+        Args:
+            filepath: Path to save checkpoint (None to use default)
+        """
+        import os
+        import pickle
+
+        if self.checkpoint_dir is None and filepath is None:
+            return  # Checkpointing disabled
+
+        if filepath is None:
+            os.makedirs(self.checkpoint_dir, exist_ok=True)
+            filepath = os.path.join(
+                self.checkpoint_dir,
+                f'checkpoint_iter_{self.iteration}.pkl'
+            )
+
+        checkpoint = {
+            'iteration': self.iteration,
+            'all_params': self.all_params,
+            'all_outputs': self.all_outputs,
+            'convergence_status': self.convergence_status,
+            'performance_values': self.performance_values,
+            'best_params': self.best_params,
+            'best_performance': self.best_performance,
+            'discovered_constraints': self.constraint_discovery.discovered_constraints,
+            'random_state': np.random.get_state(),
+            'torch_rng_state': torch.get_rng_state()
+        }
+
+        with open(filepath, 'wb') as f:
+            pickle.dump(checkpoint, f)
+
+        print(f"Checkpoint saved: {filepath}")
+
+        # Also save models
+        model_dir = os.path.join(os.path.dirname(filepath), 'models')
+        self.surrogate_manager.save_models(model_dir)
+
+    def load_checkpoint(self, filepath: str) -> None:
+        """Load optimization checkpoint and resume.
+
+        Args:
+            filepath: Path to checkpoint file
+        """
+        import os
+        import pickle
+
+        with open(filepath, 'rb') as f:
+            checkpoint = pickle.load(f)
+
+        self.iteration = checkpoint['iteration']
+        self.all_params = checkpoint['all_params']
+        self.all_outputs = checkpoint['all_outputs']
+        self.convergence_status = checkpoint['convergence_status']
+        self.performance_values = checkpoint['performance_values']
+        self.best_params = checkpoint['best_params']
+        self.best_performance = checkpoint['best_performance']
+        self.constraint_discovery.discovered_constraints = checkpoint['discovered_constraints']
+
+        # Restore random states
+        np.random.set_state(checkpoint['random_state'])
+        torch.set_rng_state(checkpoint['torch_rng_state'])
+
+        # Load models
+        model_dir = os.path.join(os.path.dirname(filepath), 'models')
+        if os.path.exists(model_dir):
+            self.surrogate_manager.load_models(model_dir)
+
+        print(f"Checkpoint loaded: {filepath}")
+        print(f"Resuming from iteration {self.iteration}")
