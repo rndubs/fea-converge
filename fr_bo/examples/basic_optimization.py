@@ -35,9 +35,7 @@ def main():
     # In practice, this would be your FEA simulator
     print("2. Creating simulator...")
     simulator = SyntheticSimulator(
-        random_seed=42,
-        failure_rate=0.15,  # 15% of simulations fail
-        noise_level=0.1     # 10% noise in objectives
+        random_seed=42  # For reproducibility
     )
 
     # Initialize optimizer
@@ -65,8 +63,8 @@ def main():
         print(f"\nTotal trials: {len(optimizer.trials)}")
 
         # Count successes and failures
-        n_success = sum(1 for t in optimizer.trials if not t.result.failed)
-        n_failure = sum(1 for t in optimizer.trials if t.result.failed)
+        n_success = sum(1 for t in optimizer.trials if t.result.converged)
+        n_failure = sum(1 for t in optimizer.trials if not t.result.converged)
 
         print(f"Successful trials: {n_success}")
         print(f"Failed trials: {n_failure}")
@@ -84,10 +82,12 @@ def main():
 
         # Convergence history
         print(f"\nConvergence history (first 10 successful trials):")
-        successful_trials = [t for t in optimizer.trials if not t.result.failed][:10]
+        successful_trials = [t for t in optimizer.trials if t.result.converged][:10]
         for i, trial in enumerate(successful_trials):
-            print(f"  Trial {trial.trial_number:3d}: {trial.objective_value:.6f} "
-                  f"({trial.phase})")
+            # Compute objective if not stored
+            obj_val = getattr(trial, 'objective_value', 'N/A')
+            print(f"  Trial {trial.trial_number:3d}: {obj_val} "
+                  f"(phase: {trial.phase}, iters: {trial.result.iterations})")
 
         print("\n" + "=" * 70)
         print("Optimization completed successfully!")
@@ -110,13 +110,14 @@ def plot_convergence(optimizer):
         import matplotlib.pyplot as plt
 
         # Extract successful trials
-        trials = [t for t in optimizer.trials if not t.result.failed]
+        trials = [t for t in optimizer.trials if t.result.converged]
         if len(trials) == 0:
             print("No successful trials to plot")
             return
 
         trial_numbers = [t.trial_number for t in trials]
-        objectives = [t.objective_value for t in trials]
+        # Get objective values if available
+        objectives = [getattr(t, 'objective_value', t.result.iterations) for t in trials]
 
         # Compute running best
         running_best = []
@@ -139,8 +140,8 @@ def plot_convergence(optimizer):
 
         # Plot 2: Success/Failure
         all_trials = optimizer.trials
-        success = [t.trial_number for t in all_trials if not t.result.failed]
-        failures = [t.trial_number for t in all_trials if t.result.failed]
+        success = [t.trial_number for t in all_trials if t.result.converged]
+        failures = [t.trial_number for t in all_trials if not t.result.converged]
 
         ax2.scatter(success, [1] * len(success), c='green', marker='o',
                    s=50, label='Success', alpha=0.6)

@@ -154,34 +154,39 @@ class TestFRBOOptimization:
         from fr_bo.optimizer import FRBOOptimizer, OptimizationConfig
 
         # Create a simulator that fails sometimes
-        class FailingSynthetic Simulator:
+        class FailingSyntheticSimulator:
             def __init__(self, failure_rate=0.3, random_seed=42):
                 self.failure_rate = failure_rate
                 self.rng = np.random.RandomState(random_seed)
 
-            def run(self, parameters):
+            def run(self, parameters, max_iterations=1000, timeout=3600.0):
                 from fr_bo.simulator import SimulationResult
 
                 # Randomly fail
                 if self.rng.rand() < self.failure_rate:
                     return SimulationResult(
                         converged=False,
-                        final_residual=1.0,
                         iterations=1000,
-                        objective_value=float('inf'),
-                        failed=True,
-                        parameters=parameters
+                        max_iterations=max_iterations,
+                        time_elapsed=timeout,
+                        timeout=timeout,
+                        final_residual=1.0,
+                        contact_pressure_max=1e6,
+                        penetration_max=0.1,
+                        severe_instability=True
                     )
 
                 # Otherwise return success
-                obj_value = self.rng.randn() + 1.0
                 return SimulationResult(
                     converged=True,
-                    final_residual=1e-8,
-                    iterations=50,
-                    objective_value=obj_value,
-                    failed=False,
-                    parameters=parameters
+                    iterations=int(self.rng.rand() * 100) + 10,
+                    max_iterations=max_iterations,
+                    time_elapsed=self.rng.rand() * 10,
+                    timeout=timeout,
+                    final_residual=1e-8 * self.rng.rand(),
+                    contact_pressure_max=1e5,
+                    penetration_max=0.0,
+                    severe_instability=False
                 )
 
         config = OptimizationConfig(
@@ -191,7 +196,7 @@ class TestFRBOOptimization:
         )
 
         try:
-            simulator = FailingSynthSimulator(failure_rate=0.3, random_seed=42)
+            simulator = FailingSyntheticSimulator(failure_rate=0.3, random_seed=42)
             optimizer = FRBOOptimizer(simulator=simulator, config=config)
 
             results = optimizer.optimize()
@@ -200,7 +205,7 @@ class TestFRBOOptimization:
             assert len(optimizer.trials) > 0
 
             # Should have some successful trials
-            successful_trials = [t for t in optimizer.trials if not t.result.failed]
+            successful_trials = [t for t in optimizer.trials if t.result.converged]
             assert len(successful_trials) > 0
 
         except Exception as e:
@@ -238,21 +243,27 @@ class TestFRBOOptimization:
 
         # Create simulator with easy optimum
         class SimpleSimulator:
-            def run(self, parameters):
+            def run(self, parameters, max_iterations=1000, timeout=3600.0):
                 from fr_bo.simulator import SimulationResult
 
                 # Simple quadratic with optimum at (0.5, 0.5)
                 x1 = parameters.get('x1', 0.5)
                 x2 = parameters.get('x2', 0.5)
-                obj = (x1 - 0.5)**2 + (x2 - 0.5)**2
+                dist = (x1 - 0.5)**2 + (x2 - 0.5)**2
+
+                # Map distance to convergence (closer = faster)
+                iterations = int(10 + dist * 50)
 
                 return SimulationResult(
                     converged=True,
+                    iterations=iterations,
+                    max_iterations=max_iterations,
+                    time_elapsed=iterations * 0.01,
+                    timeout=timeout,
                     final_residual=1e-10,
-                    iterations=10,
-                    objective_value=obj,
-                    failed=False,
-                    parameters=parameters
+                    contact_pressure_max=1e5,
+                    penetration_max=0.0,
+                    severe_instability=False
                 )
 
         config = OptimizationConfig(
