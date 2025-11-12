@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# PyTorch
+*.pt
+*.pth
+checkpoints/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and results
+data/
+plots/
+*.png
+*.jpg
+*.pdf
+results/
+
+# Logs
+*.log
+logs/
+shebo_debug.log
+
+# MLflow
+mlruns/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Development
+requirements-lock.txt
+*.prof
+*.lprof
+.coverage.*
+profile_output.txt
+
+# Temporary files
+*.tmp
+*.bak
+.env
