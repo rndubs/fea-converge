@@ -17,13 +17,6 @@ from fr_bo.gp_models import ObjectiveGP, FailureClassifier, DualGPSystem
 class TestFailureRobustEI:
     """Test suite for FailureRobustEI acquisition function."""
 
-    @pytest.fixture
-    def trained_dual_gp(self, sample_train_x, sample_train_y, sample_failure_labels):
-        """Create and train a dual GP system for testing."""
-        dual_gp = DualGPSystem(sample_train_x, sample_train_y, sample_failure_labels)
-        dual_gp.train_models(gp_restarts=1, classifier_epochs=10)
-        return dual_gp
-
     def test_initialization(self, trained_dual_gp, sample_train_y):
         """Test FREI initialization."""
         best_f = sample_train_y.min().item()
@@ -268,7 +261,7 @@ class TestAcquisitionOptimization:
 
         # Optimize acquisition
         candidate, acq_value = optimize_acquisition(
-            acq_function=acq,
+            acquisition_function=acq,
             bounds=simple_bounds,
             num_restarts=3,
             raw_samples=128
@@ -297,7 +290,7 @@ class TestAcquisitionOptimization:
 
         # Few restarts
         candidate_few, value_few = optimize_acquisition(
-            acq_function=acq,
+            acquisition_function=acq,
             bounds=simple_bounds,
             num_restarts=2,
             raw_samples=64
@@ -305,7 +298,7 @@ class TestAcquisitionOptimization:
 
         # Many restarts
         candidate_many, value_many = optimize_acquisition(
-            acq_function=acq,
+            acquisition_function=acq,
             bounds=simple_bounds,
             num_restarts=10,
             raw_samples=256

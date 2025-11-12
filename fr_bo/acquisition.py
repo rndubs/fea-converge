@@ -266,7 +266,7 @@ def optimize_acquisition(
     bounds: Tensor,
     num_restarts: int = 10,
     raw_samples: int = 512,
-) -> Tensor:
+):
     """
     Optimize acquisition function using multi-start L-BFGS-B.
 
@@ -277,7 +277,7 @@ def optimize_acquisition(
         raw_samples: Number of initial random samples
 
     Returns:
-        Best candidate point
+        Tuple of (best candidate point, acquisition value)
     """
     from botorch.optim import optimize_acqf
 
@@ -290,4 +290,4 @@ def optimize_acquisition(
         raw_samples=raw_samples,
     )
 
-    return candidate.squeeze(0)
+    return candidate, acq_value.item()

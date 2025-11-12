@@ -343,6 +343,7 @@ class TestSyntheticSimulator:
         result2 = simulator.run(params2)
 
         # Different parameters should generally give different results
-        # (with very high probability)
-        assert result1.objective_value != result2.objective_value or \
-               result1.converged != result2.converged
+        # Check multiple attributes since both might fail (objective_value = inf)
+        assert (result1.final_residual != result2.final_residual or
+                result1.iterations != result2.iterations or
+                result1.converged != result2.converged)
