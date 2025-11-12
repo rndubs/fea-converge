@@ -77,16 +77,22 @@ class SyntheticSimulator:
         # Define "good" parameter regions (normalized space)
         self.optimal_regions = [
             {
-                "center": np.array([0.5, 0.3, 0.4, 0.6, 0.5, 0.4, 0.6, 0.7, 0.3]),
-                "radius": 0.2,
+                "center": np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+                "radius": 0.3,
                 "success_prob": 0.95,
                 "mean_iters": 30,
             },
             {
-                "center": np.array([0.3, 0.5, 0.6, 0.4, 0.4, 0.3, 0.5, 0.4, 0.4]),
-                "radius": 0.15,
-                "success_prob": 0.85,
-                "mean_iters": 50,
+                "center": np.array([0.2, 0.6, 0.4, 0.4, 0.4, 0.5, 0.4, 0.6, 0.4]),
+                "radius": 0.25,
+                "success_prob": 0.90,
+                "mean_iters": 40,
+            },
+            {
+                "center": np.array([0.8, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+                "radius": 0.2,
+                "success_prob": 0.70,
+                "mean_iters": 60,
             },
         ]
 
@@ -104,17 +110,24 @@ class SyntheticSimulator:
 
     def _normalize_parameters(self, params: Dict[str, Any]) -> np.ndarray:
         """Normalize parameters to [0, 1] for distance calculations."""
-        # Extract continuous parameters (simplified normalization)
+        # Extract and normalize continuous parameters
+        # Log-scale parameters
+        penalty = params.get("penalty_stiffness", 1e5)
+        gap_tol = params.get("gap_tolerance", 1e-7)
+        proj_tol = params.get("projection_tolerance", 1e-7)
+        abs_tol = params.get("abs_tolerance", 1e-8)
+        rel_tol = params.get("rel_tolerance", 1e-6)
+
         continuous = [
-            params.get("penalty_stiffness", 0.5),
-            params.get("gap_tolerance", 0.5),
-            params.get("projection_tolerance", 0.5),
-            params.get("abs_tolerance", 0.5),
-            params.get("rel_tolerance", 0.5),
-            params.get("search_expansion", 0.5),
-            params.get("max_iterations", 500) / 1000,  # Normalize to [0,1]
-            params.get("line_search_iters", 10) / 20,
-            params.get("trust_region_scaling", 0.25) / 0.5,
+            (np.log10(penalty) - 3) / 5 if penalty > 0 else 0.5,  # 1e3 to 1e8
+            (np.log10(gap_tol) + 12) / 9 if gap_tol > 0 else 0.5,  # 1e-12 to 1e-3
+            (np.log10(proj_tol) + 12) / 9 if proj_tol > 0 else 0.5,  # 1e-12 to 1e-3
+            (np.log10(abs_tol) + 14) / 11 if abs_tol > 0 else 0.5,  # 1e-14 to 1e-3
+            (np.log10(rel_tol) + 14) / 11 if rel_tol > 0 else 0.5,  # 1e-14 to 1e-3
+            params.get("search_expansion", 0.05) / 0.1,  # 0.0 to 0.1
+            params.get("max_iterations", 500) / 1000,  # 100 to 1000
+            params.get("line_search_iters", 10) / 20,  # 5 to 20
+            params.get("trust_region_scaling", 0.25) / 0.5,  # 0.1 to 0.5
         ]
         return np.array(continuous)
 
@@ -168,12 +181,12 @@ class SyntheticSimulator:
         Returns:
             Tuple of (final_iterations, residual_history, converged)
         """
-        residuals = [initial_residual]
+        residuals = []
         current_residual = initial_residual
 
-        for i in range(1, max_iterations + 1):
+        for i in range(max_iterations):
             # Exponential decay with noise
-            decay = np.exp(-convergence_rate * i)
+            decay = np.exp(-convergence_rate * (i + 1))
             noise = self.rng.normal(1.0, 0.1)
             current_residual = initial_residual * decay * noise
 
@@ -181,21 +194,20 @@ class SyntheticSimulator:
             if self.rng.random() < 0.1:
                 current_residual *= self.rng.uniform(1.2, 2.0)
 
-            # Check convergence
-            if will_converge and current_residual < 1e-10:
-                residuals.append(current_residual)
-                return i, residuals, True
-
             residuals.append(current_residual)
 
+            # Check convergence
+            if will_converge and current_residual < 1e-8:
+                return i + 1, residuals, True
+
             # Check for stagnation (failure indicator)
-            if not will_converge and i > 20:
+            if not will_converge and i > 20 and len(residuals) >= 10:
                 if residuals[-1] > residuals[-10] * 0.9:
                     # Stagnated - terminate early
-                    return i, residuals, False
+                    return i + 1, residuals, False
 
         # Reached max iterations
-        return max_iterations, residuals, current_residual < 1e-10
+        return max_iterations, residuals, current_residual < 1e-8
 
     def run(
         self,

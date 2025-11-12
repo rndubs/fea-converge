@@ -104,8 +104,8 @@ class ObjectiveGP:
 
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
             posterior = self.model.posterior(test_X)
-            mean = posterior.mean
-            variance = posterior.variance
+            mean = posterior.mean.squeeze(-1)
+            variance = posterior.variance.squeeze(-1)
 
         return mean, variance
 

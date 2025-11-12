@@ -86,8 +86,8 @@ def test_dual_gp_system():
 
     # Check objective predictions (should be available since we have successes)
     if obj_mean is not None:
-        assert obj_mean.shape == (5, 1)
-        assert obj_var.shape == (5, 1)
+        assert obj_mean.shape == (5,)
+        assert obj_var.shape == (5,)
 
     # Check failure predictions
     assert fail_prob.shape == (5,)

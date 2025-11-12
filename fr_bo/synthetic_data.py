@@ -269,7 +269,7 @@ class SyntheticDataGenerator:
             iterations.append(i)
 
             # Exponential decay with noise
-            decay = np.exp(-convergence_rate * i)
+            decay = np.exp(-convergence_rate * (i + 1))
             noise = self.rng.normal(1.0, 0.1)
             current_residual = initial_residual * decay * noise
 
@@ -282,7 +282,7 @@ class SyntheticDataGenerator:
             active_set_sizes.append(active_set)
 
             # Check convergence
-            if will_converge and current_residual < 1e-10:
+            if will_converge and current_residual < 1e-7:
                 break
 
         return iterations, residuals, active_set_sizes

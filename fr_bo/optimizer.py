@@ -244,8 +244,10 @@ class FRBOOptimizer:
         for param in self.search_space.parameters.values():
             if param.parameter_type.name == "FLOAT":
                 if param.log_scale:
-                    # Log-scale parameter
-                    log_val = self.rng.uniform(param.lower, param.upper)
+                    # Log-scale parameter: sample in log space then convert back
+                    log_lower = np.log10(param.lower)
+                    log_upper = np.log10(param.upper)
+                    log_val = self.rng.uniform(log_lower, log_upper)
                     params[param.name] = 10 ** log_val
                 else:
                     # Linear scale
@@ -334,6 +336,11 @@ class FRBOOptimizer:
             best_f = min(t.objective_value for t in successful_trials)
         else:
             best_f = 0.0
+
+        # If no successful trials yet, fall back to random sampling
+        if self.dual_gp.objective_gp is None:
+            print("  No successful trials yet, using random sampling")
+            return self._sample_from_space()
 
         # Create FREI acquisition
         frei = FailureRobustEI(
