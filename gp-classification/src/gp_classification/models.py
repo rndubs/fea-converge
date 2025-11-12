@@ -50,10 +50,6 @@ class VariationalGPClassifier(ApproximateGP):
             n_inducing_points: Number of inducing points for scalability
             learn_inducing_locations: Whether to optimize inducing point locations
         """
-        # Ensure consistent dtype
-        train_X = train_X.to(dtype=torch.float64)
-        train_Y = train_Y.to(dtype=torch.float64)
-
         # Initialize inducing points using k-means clustering
         from sklearn.cluster import KMeans
 
@@ -61,8 +57,8 @@ class VariationalGPClassifier(ApproximateGP):
 
         if len(train_X) > n_points:
             kmeans = KMeans(n_clusters=n_points, random_state=42, n_init=10)
-            kmeans.fit(train_X.numpy())
-            inducing_points = torch.tensor(kmeans.cluster_centers_, dtype=torch.float64)
+            kmeans.fit(train_X.cpu().numpy())
+            inducing_points = torch.tensor(kmeans.cluster_centers_, dtype=train_X.dtype, device=train_X.device)
         else:
             inducing_points = train_X[:n_points].clone()
 
@@ -92,8 +88,9 @@ class VariationalGPClassifier(ApproximateGP):
             outputscale_prior=gpytorch.priors.GammaPrior(2.0, 0.15),
         )
 
-        # Convert to float64
-        self.double()
+        # Ensure all parameters match input dtype
+        if train_X.dtype == torch.float64:
+            self.to(dtype=torch.float64)
 
     def forward(self, x: torch.Tensor) -> MultivariateNormal:
         """
@@ -134,13 +131,6 @@ def train_variational_gp_classifier(
     Returns:
         Trained model and likelihood
     """
-    # Ensure consistent dtype
-    train_X = train_X.to(dtype=torch.float64)
-    train_Y = train_Y.to(dtype=torch.float64)
-
-    # Convert likelihood to float64
-    likelihood = likelihood.double()
-
     model.train()
     likelihood.train()
 
@@ -208,9 +198,6 @@ def predict_convergence_probability(
         probs: Convergence probabilities [N]
         std: Predictive standard deviation [N]
     """
-    # Ensure consistent dtype
-    X = X.to(dtype=torch.float64)
-
     model.eval()
     likelihood.eval()
 
@@ -354,8 +341,6 @@ class DualModel:
             probs: Convergence probabilities [N]
             std: Predictive standard deviation [N]
         """
-        X = X.to(dtype=torch.float64)
-
         self.convergence_model.eval()
         self.likelihood.eval()
 
