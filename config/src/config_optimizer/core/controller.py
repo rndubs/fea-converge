@@ -152,40 +152,66 @@ class CONFIGController:
     def _evaluate_and_update(self, x: np.ndarray):
         """
         Evaluate point and update all data structures.
-        
+
         Args:
             x: Point to evaluate
+
+        Raises:
+            RuntimeError: If objective function fails and cannot recover
         """
-        # Evaluate objective function
-        result = self.objective_function(x)
-        
-        # Extract objective value
-        obj_value = result['objective_value']
-        
-        # Compute constraints
-        constraints = compute_multiple_constraints(
-            result,
-            self.config.constraint_configs
-        )
-        
+        try:
+            # Evaluate objective function
+            result = self.objective_function(x)
+
+            # Validate result structure
+            if not isinstance(result, dict):
+                raise ValueError(f"Objective function must return dict, got {type(result)}")
+            if 'objective_value' not in result:
+                raise ValueError("Result must contain 'objective_value' key")
+
+            # Extract objective value
+            obj_value = result['objective_value']
+
+            # Validate objective value
+            if not np.isfinite(obj_value):
+                print(f"  WARNING: Non-finite objective value: {obj_value}, using penalty")
+                obj_value = 1e10  # Large penalty for failed evaluations
+
+            # Compute constraints
+            constraints = compute_multiple_constraints(
+                result,
+                self.config.constraint_configs
+            )
+
+        except Exception as e:
+            print(f"  ERROR: Objective function evaluation failed: {e}")
+            print(f"  Using penalty values for this evaluation")
+            # Use penalty values
+            obj_value = 1e10
+            constraints = {
+                name: 1e3  # Large positive = violated
+                for name in self.config.constraint_configs.keys()
+            }
+
         # Update data
         self.X_observed.append(x)
         self.y_observed.append(obj_value)
         for name, value in constraints.items():
             self.constraint_values[name].append(value)
-        
+
         # Update violation monitor (use first constraint for simplicity)
         # In practice, could track all constraints
-        first_constraint_value = list(constraints.values())[0]
-        self.violation_monitor.add_violation(first_constraint_value)
-        
+        if constraints:
+            first_constraint_value = list(constraints.values())[0]
+            self.violation_monitor.add_violation(first_constraint_value)
+
         # Update best feasible if applicable
         all_feasible = all(v <= 0 for v in constraints.values())
         if all_feasible and obj_value < self.best_feasible_y:
             self.best_feasible_x = x
             self.best_feasible_y = obj_value
             print(f"  New best feasible: {obj_value:.4f}")
-        
+
         self.iteration += 1
     
     def _fit_models(self):

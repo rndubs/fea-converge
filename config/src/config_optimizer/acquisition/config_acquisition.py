@@ -115,34 +115,38 @@ class CONFIGAcquisition:
         else:
             raise ValueError(f"Unknown optimization method: {method}")
     
-    def _optimize_scipy(self, n_restarts: int) -> Tuple[np.ndarray, float]:
+    def _optimize_scipy(self, n_restarts: int, max_recursion: int = 3) -> Tuple[np.ndarray, float]:
         """
         Optimize using scipy.minimize with SLSQP.
+
+        Args:
+            n_restarts: Number of random restarts
+            max_recursion: Maximum recursion depth for beta adjustment
         """
         best_x = None
         best_val = float('inf')
-        
+
         def objective(x):
             X = x.reshape(1, -1)
             return self.compute_objective_lcb(X)[0]
-        
+
         def constraint_func(x, con_idx):
             X = x.reshape(1, -1)
             lcb = self.constraint_gps[con_idx].compute_lcb(X, self.beta)[0]
             return -lcb  # scipy wants g(x) >= 0 for feasibility
-        
+
         constraints = [
             {'type': 'ineq', 'fun': constraint_func, 'args': (i,)}
             for i in range(len(self.constraint_gps))
         ]
-        
+
         # Try multiple random starts
         for _ in range(n_restarts):
             x0 = np.random.uniform(
                 self.bounds[:, 0],
                 self.bounds[:, 1]
             )
-            
+
             try:
                 result = minimize(
                     objective,
@@ -152,18 +156,19 @@ class CONFIGAcquisition:
                     method='SLSQP',
                     options={'ftol': 1e-6, 'maxiter': 100}
                 )
-                
+
                 if result.success and result.fun < best_val:
                     best_val = result.fun
                     best_x = result.x
-            except:
+            except (ValueError, RuntimeError) as e:
+                # Optimization failed for this restart, try next one
                 continue
-        
+
         # If no feasible solution found, try adaptive beta
-        if best_x is None:
+        if best_x is None and max_recursion > 0:
             # Increase beta to expand F_opt
             self.beta *= 1.5
-            return self._optimize_scipy(max(n_restarts // 2, 5))
+            return self._optimize_scipy(max(n_restarts // 2, 5), max_recursion - 1)
         
         return best_x, best_val
     

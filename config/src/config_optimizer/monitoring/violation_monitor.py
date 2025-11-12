@@ -6,7 +6,7 @@ Tracks cumulative violations and validates theoretical bounds.
 
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 
 class ViolationMonitor:
@@ -79,7 +79,7 @@ class ViolationMonitor:
         t: int,
         gamma_t: Optional[float] = None,
         tolerance_factor: float = 2.0
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Check if violations are within theoretical bounds.
         
