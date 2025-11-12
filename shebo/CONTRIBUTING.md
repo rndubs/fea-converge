@@ -2,6 +2,15 @@
 
 This guide provides instructions for setting up the development environment and contributing to the SHEBO (Surrogate Optimization with Hidden Constraints) project.
 
+> **📘 For Developers**: See [DEVELOPMENT.md](DEVELOPMENT.md) for comprehensive documentation including:
+> - Exact environment reproduction with pinned dependencies
+> - Testing environment setup and best practices
+> - Architecture overview and component descriptions
+> - Extension guide (adding new features, models, acquisition functions)
+> - Development workflows and troubleshooting
+>
+> This file (CONTRIBUTING.md) covers the basics. DEVELOPMENT.md provides in-depth technical documentation.
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)

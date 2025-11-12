@@ -1,0 +1,35 @@
+# SHEBO Requirements Lock File Example
+#
+# To generate your own lock file:
+#   pip install -e ".[dev]"
+#   pip freeze > requirements-lock.txt
+#
+# To reproduce environment:
+#   pip install -r requirements-lock.txt
+#   pip install -e . --no-deps
+#
+# This file shows example pinned versions for Python 3.10 on Linux
+# Your actual versions may differ based on OS and Python version
+
+# Core dependencies
+torch==2.1.0
+pytorch-lightning==2.1.0
+numpy==1.24.3
+scipy==1.11.3
+pandas==2.1.1
+scikit-learn==1.3.1
+imbalanced-learn==0.11.0
+matplotlib==3.8.0
+seaborn==0.13.0
+plotly==5.17.0
+pydantic==2.4.2
+
+# Development dependencies
+pytest==7.4.2
+pytest-cov==4.1.0
+black==23.10.0
+ruff==0.1.3
+mypy==1.6.1
+
+# Note: This is an example. Generate your own lock file for exact reproducibility
+# across your development team or deployment environment.

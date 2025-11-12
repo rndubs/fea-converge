@@ -59,6 +59,7 @@ results/
 # Logs
 *.log
 logs/
+shebo_debug.log
 
 # MLflow
 mlruns/
@@ -71,3 +72,15 @@ mlruns/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Development
+requirements-lock.txt
+*.prof
+*.lprof
+.coverage.*
+profile_output.txt
+
+# Temporary files
+*.tmp
+*.bak
+.env

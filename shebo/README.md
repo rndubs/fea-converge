@@ -266,9 +266,29 @@ fig.savefig('constraints.png')
 
 ## Documentation
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Development setup and guidelines
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Detailed design documentation
-- [RESEARCH.md](../RESEARCH.md) - Comprehensive ML systems documentation
+### For Users
+- [README.md](README.md) - This file: Overview, installation, quick start, examples
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Detailed design and architecture documentation
+- [RESEARCH.md](../RESEARCH.md) - Comprehensive ML systems research documentation
+
+### For Contributors & Developers
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - **Comprehensive developer guide**:
+  - Exact environment reproduction with pinned dependencies
+  - Testing environment setup and best practices
+  - Architecture overview and component descriptions
+  - Extension guide (adding new features, models, acquisition functions)
+  - Development workflows and troubleshooting
+  - Custom objective function examples
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Contributing guidelines and development setup basics
+- [CRITICAL_REVIEW.md](CRITICAL_REVIEW.md) - Code review findings and all fixes implemented
+- [FIXES.md](FIXES.md) - Detailed documentation of bug fixes with code examples
+
+### Quick Links by Task
+- **Getting Started**: [Installation](#installation) → [Quick Start](#quick-start)
+- **Adding New Features**: [DEVELOPMENT.md - Extension Guide](DEVELOPMENT.md#extension-guide)
+- **Writing Tests**: [DEVELOPMENT.md - Testing Environment](DEVELOPMENT.md#testing-environment)
+- **Troubleshooting**: [DEVELOPMENT.md - Troubleshooting](DEVELOPMENT.md#troubleshooting)
+- **Environment Setup**: [DEVELOPMENT.md - Environment Setup](DEVELOPMENT.md#environment-setup)
 
 ## Citation
 
