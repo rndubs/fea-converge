@@ -86,7 +86,9 @@ Smith requires numerous third-party libraries that are typically managed by Spac
 
 ## Build Approaches
 
-### Recommended: Spack/Uberenv (Requires Network Access)
+### Recommended: Spack/Uberenv (Requires Unrestricted Network Access)
+
+⚠️ **Note**: This method requires access to package mirrors (mirror.spack.io, ftp.gnu.org). If you're behind a restrictive HTTP proxy, see the "Network Restrictions & Proxy Issues" section below for alternatives.
 
 This is the official build method:
 
@@ -205,17 +207,64 @@ best_parameters, values, experiment, model = optimize(
 )
 ```
 
-## Network Restrictions
+## Network Restrictions & Proxy Issues
 
-**Important**: The current environment has network access restrictions (HTTP 403 Forbidden) that prevent:
-- Spack from downloading source packages
-- Uberenv from bootstrapping dependencies
-- Direct source downloads from mirrors
+**IMPORTANT**: This build system was tested in an environment with an **HTTP proxy (Envoy) that selectively blocks package mirrors**. This is NOT a lack of network access - GitHub works fine, but traditional package repositories are blocked.
 
-To complete the build, you will need either:
-1. **Unrestricted network access** for the Spack-based build
-2. **Pre-built dependencies** from a Spack mirror
-3. **Docker container** with pre-installed dependencies (see `smith/scripts/docker/`)
+### What's Blocked (HTTP 403 Forbidden):
+- `mirror.spack.io` - Spack's binary cache
+- `ftp.gnu.org` / `ftpmirror.gnu.org` - GNU software archives
+- `ghcr.io` blob storage - GitHub Container Registry package blobs
+
+### What Works:
+- `github.com` - Git repository access (cloning works)
+- Standard HTTPS to most sites
+
+### Why This Breaks the Build:
+
+Spack's uberenv build system requires downloading packages from traditional mirrors during its **bootstrap phase**. Even though system tools like `make` and `python` are already installed, Spack tries to build its own versions and fails when:
+
+1. **Bootstrap packages can't download**: Spack needs to download gmake, re2c, and clingo
+2. **Mirror fallback fails**: All mirror URLs are blocked by the proxy
+3. **Local mirrors don't help**: Spack's bootstrap logic doesn't check local mirrors first
+
+This is an **environment-specific proxy configuration issue**, not a problem with Smith's build system itself.
+
+### Solutions:
+
+**Option 1: Use Pre-built Docker Image (Fastest)**
+```bash
+docker pull seracllnl/tpls:gcc-14_latest
+# All dependencies pre-installed
+```
+
+**Option 2: Build in Unrestricted Environment**
+```bash
+# On a machine without proxy restrictions:
+git clone https://github.com/rndubs/fea-converge
+cd fea-converge
+git submodule update --init --recursive
+./build_smith.sh
+```
+
+**Option 3: Request Proxy Allowlist**
+
+Ask your network administrator to allowlist:
+- `mirror.spack.io`
+- `ftp.gnu.org`
+- `ftpmirror.gnu.org`
+- `pkg-containers.githubusercontent.com` (for ghcr.io blobs)
+
+**Option 4: Use Spack Mirror (Advanced)**
+
+Create a mirror on a machine with full internet access, then transfer it:
+```bash
+# On machine WITH internet:
+./create_spack_mirror.sh /path/to/mirror
+
+# Transfer mirror to target machine, then:
+./build_smith.sh --mirror=/path/to/mirror
+```
 
 ## Pre-built Docker Images
 
@@ -239,13 +288,40 @@ docker build -f smith/scripts/docker/dockerfile_gcc-14 -t smith-build .
 
 ## Troubleshooting
 
+### Spack Bootstrap Failures (403 Forbidden)
+
+If you see errors like:
+```
+Error: FetchError: All fetchers failed for spack-stage-gmake-4.4.1
+    https://mirror.spack.io/... returned 403: Forbidden
+    https://ftp.gnu.org/... returned 403: Forbidden
+```
+
+**Diagnosis**: You're behind an HTTP proxy that blocks package mirrors.
+
+**Test the proxy**:
+```bash
+# This should work (GitHub):
+curl -I https://github.com
+
+# This will likely fail (blocked):
+curl -I https://mirror.spack.io
+curl -I https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz
+```
+
+**Solutions**:
+1. Use pre-built Docker image (see "Network Restrictions & Proxy Issues")
+2. Build on a different machine without proxy restrictions
+3. Request your network admin to allowlist the blocked URLs
+4. Create and use a Spack mirror from an unrestricted environment
+
 ### MPI Not Found
 ```bash
 # Verify MPI installation
 which mpicc
 mpicc --version
 
-# Set CMake variables
+# Set CMake variables if needed
 cmake -DMPI_C_COMPILER=/usr/bin/mpicc \
       -DMPI_CXX_COMPILER=/usr/bin/mpicxx \
       ..
@@ -260,10 +336,12 @@ ldconfig -p | grep <library_name>
 apt-get install libhdf5-mpich-dev
 ```
 
-### Spack Bootstrap Failures
-- Check internet connectivity: `curl -I https://mirror.spack.io`
-- Use Spack mirror: `spack mirror add <mirror_url>`
-- Disable clingo bootstrap: `spack config add config:concretizer:original`
+### Build Succeeds But Tests Fail
+
+This is normal - Smith is complex software with many test cases. Check:
+- Are critical tests passing? (solver convergence, contact mechanics)
+- Do example problems run? (`cd build && mpirun -np 1 ./examples/...`)
+- Is the failure environment-specific? (GPU tests on CPU-only systems, etc.)
 
 ## References
 
