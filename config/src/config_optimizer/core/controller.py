@@ -14,6 +14,16 @@ from ..monitoring.violation_monitor import ViolationMonitor
 from ..utils.beta_schedule import compute_beta
 from ..utils.constraints import compute_multiple_constraints
 from ..utils.sampling import latin_hypercube_sampling
+from ..utils.logging_config import get_logger
+from ..utils.constants import (
+    DEFAULT_DELTA, DEFAULT_N_INIT, DEFAULT_N_RESTARTS,
+    FAILED_OBJECTIVE_PENALTY, FAILED_CONSTRAINT_PENALTY,
+    UNCERTAINTY_THRESHOLD, FEASIBILITY_DISCOVERY_BUFFER,
+    MIN_ITERATIONS_FOR_TERMINATION, STABILITY_WINDOW, STABILITY_TOLERANCE,
+    BOUNDARY_PROXIMITY_SCALE
+)
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -21,12 +31,13 @@ class CONFIGConfig:
     """Configuration for CONFIG optimizer."""
     bounds: np.ndarray
     constraint_configs: Dict[str, Dict[str, float]]
-    delta: float = 0.1
-    n_init: int = 20
+    delta: float = DEFAULT_DELTA
+    n_init: int = DEFAULT_N_INIT
     n_max: int = 100
     acquisition_method: str = "discrete"
-    n_restarts: int = 20
+    n_restarts: int = DEFAULT_N_RESTARTS
     seed: Optional[int] = None
+    verbose: bool = True  # Enable/disable logging output
 
 
 class CONFIGController:
@@ -86,21 +97,23 @@ class CONFIGController:
         """
         Phase 1: Initialization with Latin Hypercube Sampling.
         """
-        print(f"Initializing with {self.config.n_init} LHS samples...")
-        
+        logger.info(f"Initializing with {self.config.n_init} LHS samples...")
+
         # Generate initial samples
         X_init = latin_hypercube_sampling(
             self.config.bounds,
             self.config.n_init,
             seed=self.config.seed
         )
-        
+
         # Evaluate all initial points
         for i, x in enumerate(X_init):
-            print(f"  Evaluating initial point {i+1}/{self.config.n_init}...", end='\r')
+            if self.config.verbose:
+                logger.info(f"Evaluating initial point {i+1}/{self.config.n_init}")
             self._evaluate_and_update(x)
-        
-        print(f"\nInitialization complete. {self._count_feasible()} feasible points found.")
+
+        n_feasible = self._count_feasible()
+        logger.info(f"Initialization complete. {n_feasible} feasible points found.")
     
     def optimize(self) -> Dict[str, Any]:
         """
@@ -115,19 +128,19 @@ class CONFIGController:
         
         # Main optimization loop
         while self.iteration < self.config.n_max:
-            print(f"\n=== Iteration {self.iteration + 1}/{self.config.n_max} ===")
-            
+            logger.info(f"\n=== Iteration {self.iteration + 1}/{self.config.n_max} ===")
+
             # Determine phase
             phase = self._determine_phase()
-            print(f"Phase: {phase}")
-            
+            logger.info(f"Phase: {phase}")
+
             # Fit GP models
             self._fit_models()
-            
+
             # Compute beta
             beta = compute_beta(self.iteration + 1, self.config.delta)
-            print(f"Beta: {beta:.3f}")
-            
+            logger.debug(f"Beta: {beta:.3f}")
+
             # Propose next point
             if phase == "constrained_optimization":
                 next_x = self._propose_next_config(beta)
@@ -135,18 +148,18 @@ class CONFIGController:
                 next_x = self._propose_boundary_exploration(beta)
             else:  # initialization phase continued
                 next_x = self._propose_random()
-            
+
             # Evaluate
             self._evaluate_and_update(next_x)
-            
+
             # Report status
-            self._print_status()
-            
+            self._log_status()
+
             # Check termination
             if self._check_termination():
-                print("\nTermination criterion met.")
+                logger.info("Termination criterion met.")
                 break
-        
+
         return self._get_results()
     
     def _evaluate_and_update(self, x: np.ndarray):
@@ -174,8 +187,8 @@ class CONFIGController:
 
             # Validate objective value
             if not np.isfinite(obj_value):
-                print(f"  WARNING: Non-finite objective value: {obj_value}, using penalty")
-                obj_value = 1e10  # Large penalty for failed evaluations
+                logger.warning(f"Non-finite objective value: {obj_value}, using penalty")
+                obj_value = FAILED_OBJECTIVE_PENALTY
 
             # Compute constraints
             constraints = compute_multiple_constraints(
@@ -184,12 +197,12 @@ class CONFIGController:
             )
 
         except Exception as e:
-            print(f"  ERROR: Objective function evaluation failed: {e}")
-            print(f"  Using penalty values for this evaluation")
+            logger.error(f"Objective function evaluation failed: {e}")
+            logger.info("Using penalty values for this evaluation")
             # Use penalty values
-            obj_value = 1e10
+            obj_value = FAILED_OBJECTIVE_PENALTY
             constraints = {
-                name: 1e3  # Large positive = violated
+                name: FAILED_CONSTRAINT_PENALTY
                 for name in self.config.constraint_configs.keys()
             }
 
@@ -210,7 +223,7 @@ class CONFIGController:
         if all_feasible and obj_value < self.best_feasible_y:
             self.best_feasible_x = x
             self.best_feasible_y = obj_value
-            print(f"  New best feasible: {obj_value:.4f}")
+            logger.info(f"New best feasible: {obj_value:.6f}")
 
         self.iteration += 1
     
@@ -277,9 +290,9 @@ class CONFIGController:
         for gp in self.constraint_gps.values():
             mean, std = gp.predict(candidates)
             lcb = mean - np.sqrt(beta) * std
-            
+
             # Score = uncertainty × boundary proximity
-            boundary_proximity = np.exp(-5 * lcb**2)
+            boundary_proximity = np.exp(-BOUNDARY_PROXIMITY_SCALE * lcb**2)
             score = std * boundary_proximity
             scores.append(score)
         
@@ -307,15 +320,15 @@ class CONFIGController:
         
         if self.iteration < self.config.n_init:
             return "initialization"
-        
-        if n_feasible == 0 and self.iteration < self.config.n_init + 20:
+
+        if n_feasible == 0 and self.iteration < self.config.n_init + FEASIBILITY_DISCOVERY_BUFFER:
             return "feasibility_discovery"
-        
+
         # Check constraint uncertainty
         max_uncertainty = self._get_max_constraint_uncertainty()
-        if max_uncertainty > 0.3:
+        if max_uncertainty > UNCERTAINTY_THRESHOLD:
             return "feasibility_discovery"
-        
+
         return "constrained_optimization"
     
     def _count_feasible(self) -> int:
@@ -354,34 +367,42 @@ class CONFIGController:
         # Budget exhausted
         if self.iteration >= self.config.n_max:
             return True
-        
+
         # Best solution stable for many iterations
-        if self.best_feasible_x is not None and self.iteration >= 50:
-            # Check if best hasn't changed in 15 iterations
+        if self.best_feasible_x is not None and self.iteration >= MIN_ITERATIONS_FOR_TERMINATION:
+            # Check if best hasn't changed in STABILITY_WINDOW iterations
             recent_feasible_count = 0
-            for i in range(max(0, self.iteration - 15), self.iteration):
+            for i in range(max(0, self.iteration - STABILITY_WINDOW), self.iteration):
                 all_feasible = all(
                     self.constraint_values[name][i] <= 0
                     for name in self.constraint_values.keys()
                 )
-                if all_feasible and self.y_observed[i] < self.best_feasible_y + 1e-3:
+                if all_feasible and self.y_observed[i] < self.best_feasible_y + STABILITY_TOLERANCE:
                     recent_feasible_count += 1
-            
+
             if recent_feasible_count == 0:
+                logger.debug(f"No improvements in last {STABILITY_WINDOW} iterations")
                 return True
-        
+
         return False
     
-    def _print_status(self):
-        """Print current optimization status."""
+    def _log_status(self):
+        """Log current optimization status."""
         stats = self.violation_monitor.get_statistics()
-        print(f"  Feasible: {self._count_feasible()}/{self.iteration}")
-        print(f"  Best feasible: {self.best_feasible_y:.6f}" if self.best_feasible_x is not None else "  Best feasible: None")
-        print(f"  Cumulative violations: {stats['cumulative_violation']:.4f}")
-        
+        n_feasible = self._count_feasible()
+
+        logger.info(f"Feasible: {n_feasible}/{self.iteration}")
+
+        if self.best_feasible_x is not None:
+            logger.info(f"Best feasible: {self.best_feasible_y:.6f}")
+        else:
+            logger.info("Best feasible: None")
+
+        logger.info(f"Cumulative violations: {stats['cumulative_violation']:.4f}")
+
         # Check theoretical bound
         bound_check = self.violation_monitor.check_theoretical_bound(self.iteration)
-        print(f"  Violation bound status: {bound_check['status']}")
+        logger.info(f"Violation bound status: {bound_check['status']}")
     
     def _get_results(self) -> Dict[str, Any]:
         """
@@ -415,4 +436,4 @@ class CONFIGController:
         }
         with open(filepath, 'wb') as f:
             pickle.dump(state, f)
-        print(f"State saved to {filepath}")
+        logger.info(f"State saved to {filepath}")

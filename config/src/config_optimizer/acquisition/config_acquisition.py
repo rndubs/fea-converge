@@ -8,6 +8,12 @@ from scipy.optimize import minimize, differential_evolution
 from typing import List, Optional, Tuple, Callable
 from ..models.gp_models import ObjectiveGP, ConstraintGP
 from ..utils.beta_schedule import compute_beta
+from ..utils.constants import (
+    MAX_BETA_RECURSION, BETA_ADJUSTMENT_FACTOR,
+    SCIPY_FTOL, SCIPY_MAX_ITER,
+    DIFFERENTIAL_EVOLUTION_MAX_ITER,
+    CONSTRAINT_PENALTY_WEIGHT
+)
 
 
 class CONFIGAcquisition:
@@ -115,7 +121,7 @@ class CONFIGAcquisition:
         else:
             raise ValueError(f"Unknown optimization method: {method}")
     
-    def _optimize_scipy(self, n_restarts: int, max_recursion: int = 3) -> Tuple[np.ndarray, float]:
+    def _optimize_scipy(self, n_restarts: int, max_recursion: int = MAX_BETA_RECURSION) -> Tuple[np.ndarray, float]:
         """
         Optimize using scipy.minimize with SLSQP.
 
@@ -154,7 +160,7 @@ class CONFIGAcquisition:
                     bounds=[(b[0], b[1]) for b in self.bounds],
                     constraints=constraints,
                     method='SLSQP',
-                    options={'ftol': 1e-6, 'maxiter': 100}
+                    options={'ftol': SCIPY_FTOL, 'maxiter': SCIPY_MAX_ITER}
                 )
 
                 if result.success and result.fun < best_val:
@@ -167,7 +173,7 @@ class CONFIGAcquisition:
         # If no feasible solution found, try adaptive beta
         if best_x is None and max_recursion > 0:
             # Increase beta to expand F_opt
-            self.beta *= 1.5
+            self.beta *= BETA_ADJUSTMENT_FACTOR
             return self._optimize_scipy(max(n_restarts // 2, 5), max_recursion - 1)
         
         return best_x, best_val
@@ -217,15 +223,15 @@ class CONFIGAcquisition:
             # Add penalty for constraint violations
             constraint_lcbs = self.compute_constraint_lcbs(X)
             penalty = sum(max(0, lcb)**2 for lcb in [c[0] for c in constraint_lcbs])
-            
-            return lcb_obj + 100 * penalty
-        
+
+            return lcb_obj + CONSTRAINT_PENALTY_WEIGHT * penalty
+
         bounds_list = [(b[0], b[1]) for b in self.bounds]
-        
+
         result = differential_evolution(
             objective,
             bounds_list,
-            maxiter=100,
+            maxiter=DIFFERENTIAL_EVOLUTION_MAX_ITER,
             seed=42,
             workers=1
         )
