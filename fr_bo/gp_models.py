@@ -11,12 +11,14 @@ import torch
 import gpytorch
 from botorch.models import SingleTaskGP
 from botorch.models.transforms import Standardize
+from botorch.fit import fit_gpytorch_mll
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, VariationalStrategy
-from gpytorch.likelihoods import BernoulliLikelihood
+from gpytorch.likelihoods import BernoulliLikelihood, GaussianLikelihood
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO, ExactMarginalLogLikelihood
+from gpytorch.constraints import GreaterThan
 import numpy as np
 
 
@@ -38,14 +40,20 @@ class ObjectiveGP:
         self.train_X = train_X
         self.train_Y = train_Y
 
-        # Create SingleTaskGP with Matérn-5/2 kernel and ARD
+        # Create likelihood without priors
+        likelihood = GaussianLikelihood(
+            noise_constraint=GreaterThan(1e-6)
+        )
+
+        # Create SingleTaskGP with custom likelihood
         self.model = SingleTaskGP(
             train_X=train_X,
             train_Y=train_Y,
+            likelihood=likelihood,
             outcome_transform=Standardize(m=1),
         )
 
-        # Configure Matérn-5/2 kernel with ARD (no priors for simpler optimization)
+        # Configure Matérn-5/2 kernel with ARD
         self.model.covar_module = ScaleKernel(
             MaternKernel(
                 nu=2.5,
@@ -55,9 +63,9 @@ class ObjectiveGP:
 
         self.mll = ExactMarginalLogLikelihood(self.model.likelihood, self.model)
 
-    def optimize_hyperparameters(self, num_restarts: int = 5):
+    def optimize_hyperparameters(self, num_restarts: int = 3):
         """
-        Optimize GP hyperparameters via MLE.
+        Optimize GP hyperparameters via MLE using BoTorch's fit utility.
 
         Args:
             num_restarts: Number of random restarts for optimization
@@ -65,42 +73,21 @@ class ObjectiveGP:
         self.model.train()
         self.model.likelihood.train()
 
-        best_loss = float("inf")
-        best_state_dict = None
-
-        for restart in range(num_restarts):
-            # Random initialization
-            if restart > 0:
-                self._initialize_hyperparameters()
-
-            # Optimize
-            optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
-
-            for i in range(100):
+        try:
+            # Use BoTorch's fit utility which handles priors correctly
+            fit_gpytorch_mll(self.mll)
+        except Exception as e:
+            # Fallback to simple optimization without prior validation
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=0.05)
+            for i in range(50):
                 optimizer.zero_grad()
                 output = self.model(self.train_X)
                 loss = -self.mll(output, self.train_Y.squeeze())
                 loss.backward()
                 optimizer.step()
 
-            # Check if this is the best restart
-            final_loss = loss.item()
-            if final_loss < best_loss:
-                best_loss = final_loss
-                best_state_dict = self.model.state_dict()
-
-        # Load best model
-        if best_state_dict is not None:
-            self.model.load_state_dict(best_state_dict)
-
         self.model.eval()
         self.model.likelihood.eval()
-
-    def _initialize_hyperparameters(self):
-        """Randomly initialize hyperparameters."""
-        self.model.covar_module.base_kernel.lengthscale = torch.rand_like(
-            self.model.covar_module.base_kernel.lengthscale
-        ) * 2.0 + 0.1
 
     def predict(self, test_X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """

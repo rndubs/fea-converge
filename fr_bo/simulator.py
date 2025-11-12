@@ -28,6 +28,18 @@ class SimulationResult:
     residual_history: Optional[List[float]] = None
     active_set_sizes: Optional[List[int]] = None
 
+    def __post_init__(self):
+        """Ensure bool types are Python bools, not NumPy bools."""
+        self.converged = bool(self.converged)
+        self.severe_instability = bool(self.severe_instability)
+        self.iterations = int(self.iterations)
+        self.max_iterations = int(self.max_iterations)
+        self.time_elapsed = float(self.time_elapsed)
+        self.timeout = float(self.timeout)
+        self.final_residual = float(self.final_residual)
+        self.contact_pressure_max = float(self.contact_pressure_max)
+        self.penetration_max = float(self.penetration_max)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
         return {

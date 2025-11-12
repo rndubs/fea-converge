@@ -17,15 +17,15 @@ class ParameterBounds:
     """Parameter bounds and metadata for FEA optimization."""
 
     # Tribol contact parameters
-    PENALTY_STIFFNESS = (1e3, 1e8)  # Log-scale
-    GAP_TOLERANCE = (1e-9, 1e-6)  # Log-scale
-    PROJECTION_TOLERANCE = (1e-9, 1e-6)  # Log-scale
+    PENALTY_STIFFNESS = (1e3, 1e8)  # Log-scale (5 orders of magnitude)
+    GAP_TOLERANCE = (1e-12, 1e-3)  # Log-scale (9 orders of magnitude)
+    PROJECTION_TOLERANCE = (1e-12, 1e-3)  # Log-scale (9 orders of magnitude)
     SEARCH_EXPANSION = (1.1, 1.5)  # Linear
 
     # Smith solver parameters
     MAX_ITERATIONS = (10, 1000)  # Linear
-    ABS_TOLERANCE = (1e-14, 1e-8)  # Log-scale
-    REL_TOLERANCE = (1e-14, 1e-8)  # Log-scale
+    ABS_TOLERANCE = (1e-14, 1e-3)  # Log-scale (11 orders of magnitude)
+    REL_TOLERANCE = (1e-14, 1e-3)  # Log-scale (11 orders of magnitude)
     LINE_SEARCH_ITERS = (0, 20)  # Linear
     TRUST_REGION_SCALING = (0.05, 0.5)  # Linear
 

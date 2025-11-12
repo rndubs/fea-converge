@@ -157,6 +157,8 @@ def compute_success_metrics(results: list) -> Dict[str, float]:
             "mean_iterations": 0.0,
             "mean_time": 0.0,
             "median_objective": np.inf,
+            "total_trials": 0,
+            "successful_trials": 0,
         }
 
     converged_results = [r for r in results if r.get("converged", False)]
