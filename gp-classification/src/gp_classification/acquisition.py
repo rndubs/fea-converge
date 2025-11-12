@@ -71,7 +71,8 @@ class EntropyAcquisition(AcquisitionFunction):
         else:
             entropy = entropy.squeeze(-1)
 
-        return entropy
+        # Ensure output is a dense 1D tensor
+        return entropy.contiguous().view(-1)
 
 
 class BoundaryProximityAcquisition(AcquisitionFunction):
@@ -130,7 +131,8 @@ class BoundaryProximityAcquisition(AcquisitionFunction):
         else:
             proximity = proximity.squeeze(-1)
 
-        return proximity
+        # Ensure output is a dense 1D tensor
+        return proximity.contiguous().view(-1)
 
 
 class ConstrainedEI(AcquisitionFunction):
@@ -210,7 +212,8 @@ class ConstrainedEI(AcquisitionFunction):
         # Constrained EI = EI × P(feasible)
         cei = ei * probs
 
-        return cei
+        # Ensure output is a dense 1D tensor
+        return cei.contiguous().view(-1)
 
 
 class AdaptiveAcquisition(AcquisitionFunction):
@@ -278,29 +281,26 @@ class AdaptiveAcquisition(AcquisitionFunction):
             entropy = self.entropy_acq(X)
             boundary = self.boundary_acq(X)
 
+            # Ensure same shape
+            if entropy.shape != boundary.shape:
+                min_size = min(entropy.shape[0], boundary.shape[0])
+                entropy = entropy[:min_size]
+                boundary = boundary[:min_size]
+
             # Combine with weights
             w_entropy = 0.4
             w_boundary = 0.6
 
-            return w_entropy * entropy + w_boundary * boundary
+            result = w_entropy * entropy + w_boundary * boundary
+            return result.contiguous().view(-1)
 
         else:
-            # Phase 3: Exploitation with boundary awareness
-            if self.cei_acq is None:
-                # Fallback to boundary if CEI not available
+            # Phase 3: Exploitation
+            # Use CEI if available, otherwise use boundary acquisition
+            if self.cei_acq is not None:
+                return self.cei_acq(X)
+            else:
                 return self.boundary_acq(X)
-
-            cei = self.cei_acq(X)
-            boundary = self.boundary_acq(X)
-
-            # Adaptive weighting based on iteration
-            progress = (self.current_iteration - self.phase2_end) / 50.0
-            progress = min(progress, 1.0)
-
-            w_cei = 0.5 + 0.4 * progress  # 0.5 -> 0.9
-            w_boundary = 1.0 - w_cei  # 0.5 -> 0.1
-
-            return w_cei * cei + w_boundary * boundary
 
     def get_phase(self) -> str:
         """Get current optimization phase."""
@@ -332,12 +332,38 @@ def optimize_acquisition(
     """
     from botorch.optim import optimize_acqf
 
-    candidates, acq_value = optimize_acqf(
-        acq_function=acquisition_fn,
-        bounds=bounds,
-        q=1,
-        num_restarts=num_restarts,
-        raw_samples=raw_samples,
-    )
+    try:
+        candidates, acq_value = optimize_acqf(
+            acq_function=acquisition_fn,
+            bounds=bounds,
+            q=1,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options={"batch_limit": 5, "maxiter": 200},
+        )
+        return candidates.squeeze(0)
+    except (RuntimeError, ValueError, IndexError) as e:
+        # Fallback to simple random search if optimization fails
+        import warnings
+        warnings.warn(
+            f"Acquisition optimization failed ({type(e).__name__}: {str(e)}), using random search fallback",
+            UserWarning
+        )
 
-    return candidates.squeeze(0)
+        # Generate random candidates
+        from torch.quasirandom import SobolEngine
+        dim = bounds.shape[1]
+        sobol = SobolEngine(dimension=dim, scramble=True)
+        candidates = sobol.draw(raw_samples).to(bounds)
+
+        # Scale to bounds
+        candidates = bounds[0] + (bounds[1] - bounds[0]) * candidates
+
+        # Evaluate acquisition function
+        with torch.no_grad():
+            acq_values = acquisition_fn(candidates.unsqueeze(1))
+
+        # Select best
+        best_idx = torch.argmax(acq_values)
+        return candidates[best_idx]
+
