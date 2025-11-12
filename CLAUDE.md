@@ -67,12 +67,54 @@ Ensemble surrogate modeling with automatic constraint discovery.
 
 The `./smith` directory contains submodules and build scripts for the Smith/Serac finite element solver framework.
 
-**Important Build Limitation**: The Smith build system **cannot be built in Claude Code for the Web environments** due to network access restrictions. Building Smith requires:
+### Build Prerequisites (Now Installed)
+
+The following dependencies are now installed and verified:
+- **CMake 3.28.3** - Build system generator
+- **Python 3.11.14** - Required for uberenv build scripts
+- **GCC 13.3.0** - C/C++ compiler
+- **gfortran 13.3.0** - Fortran compiler
+- **MPICH 4.2.0** - MPI implementation
+- **Clang 18.1.3** - Alternative compiler (optional)
+
+The smith submodule has been initialized with all recursive submodules.
+
+### Build Status
+
+✅ **Fixed Issues:**
+- Installed missing MPI (MPICH) package
+- Initialized smith git submodule and all nested submodules
+- Verified all build prerequisites
+- Enhanced build script with better error handling and diagnostics
+
+⚠️ **Remaining Limitation:**
+
+The Smith build system **cannot complete in Claude Code for the Web environments** due to network access restrictions. Building Smith requires:
 - Network access to download Spack dependencies
 - Access to external package repositories
 - Ability to fetch TPL (Third-Party Library) sources
 
-If you need to build Smith, use a local development environment or a containerized environment with network access enabled. The `build_smith.sh` script handles the build process but will fail in sandboxed/network-restricted environments.
+The `build_smith.sh` script will successfully check all prerequisites and begin the build process, but will fail when uberenv attempts to clone Spack repositories and download dependencies.
+
+### Build Documentation
+
+See `SMITH_BUILD_STATUS.md` for:
+- Complete list of fixed issues
+- Current system configuration
+- Alternative build approaches for restricted environments
+- Instructions for using Spack mirrors or pre-built TPLs
+
+### Running the Build
+
+To attempt the build (will fail at network access stage):
+```bash
+./build_smith.sh
+```
+
+To use an alternative Spack configuration:
+```bash
+SPACK_CONFIG=./smith/scripts/spack/configs/linux_ubuntu_24/spack.yaml ./build_smith.sh
+```
 
 ## Additional Resources
 

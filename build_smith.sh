@@ -16,6 +16,8 @@ BUILD_DIR="${SMITH_DIR}/build"
 COMPILER="${COMPILER:-gcc_13}"
 BUILD_SPEC="${BUILD_SPEC:-~devtools~enzyme %${COMPILER}}"
 BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
+# Allow override of spack config path
+SPACK_CONFIG="${SPACK_CONFIG:-./scripts/spack/configs/docker/ubuntu24/spack.yaml}"
 
 echo "Configuration:"
 echo "  Smith directory: ${SMITH_DIR}"
@@ -24,6 +26,7 @@ echo "  Build directory: ${BUILD_DIR}"
 echo "  Compiler: ${COMPILER}"
 echo "  Build spec: ${BUILD_SPEC}"
 echo "  Parallel jobs: ${BUILD_JOBS}"
+echo "  Spack config: ${SPACK_CONFIG}"
 echo ""
 
 # Check prerequisites
@@ -45,11 +48,27 @@ if ! command -v mpicc &> /dev/null; then
     exit 1
 fi
 
+if ! command -v gfortran &> /dev/null; then
+    echo "ERROR: gfortran not found. Please install gfortran"
+    echo "  Ubuntu/Debian: apt-get install gfortran"
+    exit 1
+fi
+
 CMAKE_VERSION=$(cmake --version | head -1 | awk '{print $3}')
 echo "  CMake version: ${CMAKE_VERSION}"
 echo "  Python version: $(python3 --version)"
 echo "  MPI: $(mpicc --version | head -1)"
 echo "  GCC: $(gcc --version | head -1)"
+echo "  gfortran: $(gfortran --version | head -1)"
+echo ""
+
+# Check if smith submodule is initialized
+if [ ! -f "${SMITH_DIR}/CMakeLists.txt" ]; then
+    echo "ERROR: Smith submodule not initialized"
+    echo "Please run: git submodule update --init --recursive"
+    exit 1
+fi
+echo "Smith submodule: initialized"
 echo ""
 
 # Step 1: Build third-party libraries with uberenv
@@ -73,16 +92,27 @@ fi
 
 if [ ! -d "${TPL_DIR}/spack" ]; then
     echo "Running uberenv to build dependencies..."
+    echo "NOTE: This requires network access to download Spack packages."
+    echo "      In restricted environments, this step will fail."
+    echo ""
+
     python3 ./scripts/uberenv/uberenv.py \
-        --spack-env-file=./scripts/spack/configs/docker/ubuntu24/spack.yaml \
+        --spack-env-file="${SPACK_CONFIG}" \
         --project-json=.uberenv_config.json \
         --spec="${BUILD_SPEC}" \
         --prefix="${TPL_DIR}" \
         -k \
         -j "${BUILD_JOBS}"
-        
+
     if [ $? -ne 0 ]; then
+        echo ""
+        echo "================================"
         echo "ERROR: uberenv build failed"
+        echo "================================"
+        echo ""
+        echo "This is likely due to network access restrictions."
+        echo "See SMITH_BUILD_STATUS.md for alternative build approaches."
+        echo ""
         exit 1
     fi
 else
