@@ -346,6 +346,7 @@ class FRBOOptimizer:
         frei = FailureRobustEI(
             model=self.dual_gp.objective_gp.model,
             failure_model=self.dual_gp.failure_classifier.model,
+            failure_likelihood=self.dual_gp.failure_classifier.likelihood,
             best_f=best_f,
             maximize=False,
         )
@@ -386,22 +387,33 @@ class FRBOOptimizer:
         print(f"\n{self.current_phase.upper()} Phase Summary:")
         print(f"  Trials: {len(phase_trials)}")
         print(f"  Converged: {converged} ({success_rate * 100:.1f}%)")
-        print(f"  Best objective: {self.best_objective:.4f}")
+        if not np.isinf(self.best_objective):
+            print(f"  Best objective: {self.best_objective:.4f}")
+        else:
+            print(f"  Best objective: {self.best_objective}")
 
     def _print_validation_summary(self, results: Dict[str, Any]):
         """Print validation and final summary."""
         print("\nFinal Results:")
         print("=" * 70)
-        print(f"Best trial: {results['best_trial_number']}")
-        print(f"Best objective: {results['best_objective']:.4f}")
-        print(f"\nBest parameters:")
-        for key, value in results["best_parameters"].items():
-            print(f"  {key}: {value}")
+
+        if results["best_parameters"] is not None:
+            print(f"Best trial: {results['best_trial_number']}")
+            print(f"Best objective: {results['best_objective']:.4f}")
+            print(f"\nBest parameters:")
+            for key, value in results["best_parameters"].items():
+                print(f"  {key}: {value}")
+        else:
+            print("No successful trials - all simulations failed to converge")
+            print(f"Total trials attempted: {results['total_trials']}")
 
         print(f"\nOverall Metrics:")
         for key, value in results["metrics"]["overall"].items():
             if isinstance(value, float):
-                print(f"  {key}: {value:.4f}")
+                if not np.isinf(value):
+                    print(f"  {key}: {value:.4f}")
+                else:
+                    print(f"  {key}: {value}")
             else:
                 print(f"  {key}: {value}")
 

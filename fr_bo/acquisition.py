@@ -35,6 +35,7 @@ class FailureRobustEI(AnalyticAcquisitionFunction):
         best_f: float,
         maximize: bool = False,
         failure_penalty_weight: float = 1.0,
+        failure_likelihood: Optional[object] = None,
     ):
         """
         Initialize FREI acquisition function.
@@ -45,9 +46,11 @@ class FailureRobustEI(AnalyticAcquisitionFunction):
             best_f: Best observed objective value
             maximize: If True, maximize objective (use negative EI)
             failure_penalty_weight: Weight for failure penalty (default 1.0)
+            failure_likelihood: Optional likelihood for failure model
         """
         super().__init__(model=model)
         self.failure_model = failure_model
+        self.failure_likelihood = failure_likelihood
         self.best_f = best_f
         self.maximize = maximize
         self.failure_penalty_weight = failure_penalty_weight
@@ -71,6 +74,11 @@ class FailureRobustEI(AnalyticAcquisitionFunction):
 
         # Combine: FREI = EI × (1 - P_fail)^weight
         frei = ei * torch.pow(success_prob, self.failure_penalty_weight)
+
+        # Ensure output has correct shape - squeeze q-batch dimension
+        # For q=1, we should return shape [batch_size] not [batch_size, 1]
+        if frei.dim() > 1:
+            frei = frei.squeeze(-1)
 
         return frei
 
@@ -121,10 +129,10 @@ class FailureRobustEI(AnalyticAcquisitionFunction):
         Compute success probability from failure classifier.
 
         Args:
-            X: Input tensor
+            X: Input tensor of shape (..., d)
 
         Returns:
-            Success probability (1 - P_fail)
+            Success probability (1 - P_fail) of shape matching X.shape[:-1]
         """
         # Get failure probability from classifier
         with torch.no_grad():
@@ -132,13 +140,22 @@ class FailureRobustEI(AnalyticAcquisitionFunction):
             latent_dist = self.failure_model(X)
 
             # Get failure probability via Bernoulli likelihood
-            # For variational GP classifier
-            if hasattr(self.failure_model, "likelihood"):
-                pred_dist = self.failure_model.likelihood(latent_dist)
-                failure_prob = pred_dist.mean.squeeze(-1)
+            # Use provided likelihood if available
+            if self.failure_likelihood is not None:
+                pred_dist = self.failure_likelihood(latent_dist)
+                # pred_dist.probs gives us P(y=1) for Bernoulli
+                if hasattr(pred_dist, "probs"):
+                    failure_prob = pred_dist.probs
+                else:
+                    failure_prob = pred_dist.mean
+
+                # Keep shape as-is to match EI dimensions for proper broadcasting
+                # pred_dist.probs already has the right shape
+                pass
             else:
                 # Fallback: use sigmoid of mean
-                failure_prob = torch.sigmoid(latent_dist.mean.squeeze(-1))
+                # Keep mean shape for consistency
+                failure_prob = torch.sigmoid(latent_dist.mean)
 
         # Compute success probability
         success_prob = 1.0 - failure_prob
