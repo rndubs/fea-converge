@@ -6,7 +6,6 @@ Implements the theoretical β schedule from CONFIG paper:
 """
 
 import numpy as np
-from typing import Union
 
 
 def compute_beta(

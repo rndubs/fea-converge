@@ -5,7 +5,7 @@ CONFIG acquisition function using Lower Confidence Bound.
 import torch
 import numpy as np
 from scipy.optimize import minimize, differential_evolution
-from typing import List, Optional, Tuple, Callable
+from typing import List, Optional, Tuple
 from ..models.gp_models import ObjectiveGP, ConstraintGP
 from ..utils.beta_schedule import compute_beta
 from ..utils.constants import (
