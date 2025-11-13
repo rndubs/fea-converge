@@ -148,3 +148,13 @@ def approx_equal(a: float, b: float, tol: float = 1e-6) -> bool:
 def tensor_approx_equal(a: torch.Tensor, b: torch.Tensor, tol: float = 1e-6) -> bool:
     """Check if two tensors are approximately equal."""
     return torch.allclose(a, b, atol=tol, rtol=tol)
+
+
+@pytest.fixture
+def trained_dual_gp(sample_train_x, sample_train_y, sample_failure_labels):
+    """Create and train a dual GP system for testing."""
+    from fr_bo.gp_models import DualGPSystem
+
+    dual_gp = DualGPSystem(sample_train_x, sample_train_y, sample_failure_labels)
+    dual_gp.train_models(gp_restarts=1, classifier_epochs=10)
+    return dual_gp

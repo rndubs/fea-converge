@@ -87,8 +87,8 @@ class TestSearchSpace:
         """Test getting parameter dimension."""
         from fr_bo.parameters import get_parameter_dimension, create_search_space
 
-        search_space = create_search_space()
-        dim = get_parameter_dimension(search_space)
+        # Get parameter dimension
+        dim = get_parameter_dimension()
 
         # Should have positive dimension
         assert dim > 0
