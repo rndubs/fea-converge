@@ -5,7 +5,7 @@ Simulates contact convergence behavior based on realistic physics-inspired model
 """
 
 import numpy as np
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 class MockSmithSolver:
@@ -213,7 +213,7 @@ class SyntheticDataGenerator:
         self.parameter_names = list(parameter_bounds.keys())
         self.rng = np.random.RandomState(random_seed)
 
-    def generate_random_parameters(self, n_samples: int) -> list[Dict[str, float]]:
+    def generate_random_parameters(self, n_samples: int) -> List[Dict[str, float]]:
         """
         Generate random parameter sets within bounds.
 
@@ -242,7 +242,7 @@ class SyntheticDataGenerator:
 
         return parameter_sets
 
-    def generate_latin_hypercube(self, n_samples: int) -> list[Dict[str, float]]:
+    def generate_latin_hypercube(self, n_samples: int) -> List[Dict[str, float]]:
         """
         Generate parameter sets using Latin Hypercube Sampling.
 
@@ -286,7 +286,7 @@ class SyntheticDataGenerator:
         solver: MockSmithSolver,
         n_samples: int,
         sampling_method: str = "latin_hypercube",
-    ) -> list[Tuple[Dict[str, float], bool, Optional[float]]]:
+    ) -> List[Tuple[Dict[str, float], bool, Optional[float]]]:
         """
         Generate complete dataset by evaluating solver.
 

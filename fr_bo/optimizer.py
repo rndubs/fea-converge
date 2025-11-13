@@ -375,8 +375,7 @@ class FRBOOptimizer:
     def _decode_parameters(self, encoded: np.ndarray) -> Dict[str, Any]:
         """Decode feature vector to parameters."""
         from fr_bo.parameters import decode_parameters
-        # For now, sample from space (proper decoding would require inverse transform)
-        return self._sample_from_space()
+        return decode_parameters(encoded)
 
     def _print_phase_summary(self):
         """Print summary of current phase."""

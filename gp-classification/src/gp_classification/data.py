@@ -214,9 +214,16 @@ class TrialDatabase:
                 if col.startswith("geo_"):
                     geo_metadata[col[4:]] = row[col]
 
+            # Properly parse boolean from CSV (handles string "False" correctly)
+            converged_value = row["converged"]
+            if isinstance(converged_value, str):
+                converged = converged_value.lower() in ("true", "1", "yes")
+            else:
+                converged = bool(converged_value)
+
             db.add_trial(
                 parameters=parameters,
-                converged=bool(row["converged"]),
+                converged=converged,
                 objective_value=row.get("objective_value"),
                 iteration_count=row.get("iteration_count"),
                 residual_norm=row.get("residual_norm"),
