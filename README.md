@@ -252,7 +252,18 @@ fea-converge/
 │   ├── risk_scoring.py        # Pre-simulation risk
 │   └── ... (13 files total)   # Tests/examples needed
 │
+├── build/                     # ✅ Consolidated Build System
+│   ├── BUILD.md               # Complete build documentation
+│   ├── docker/                # macOS container builds
+│   │   └── build-smith-macos.sh
+│   ├── hpc/                   # LLNL HPC builds
+│   │   └── build-smith-llnl.sh
+│   └── scripts/               # Model compilation and execution
+│       ├── build-model.sh
+│       └── run-model.sh
+│
 ├── smith/                     # Smith FEA submodule
+├── smith-models/              # Contact test cases (8 models)
 ├── README.md                  # This file (overview)
 ├── PROJECT_SCOPE.md           # Project scoping decision
 ├── RESEARCH.md                # Technical documentation
@@ -292,13 +303,36 @@ fea-converge/
 
 ## Smith FEA Integration
 
-This project was developed for tuning Smith FEA solver parameters. See:
+This project was developed for tuning Smith FEA solver parameters and includes contact test models. See:
 
+- **[Smith Build System](build/BUILD.md)** - Complete build documentation
 - **[Smith Integration Example](config/examples/smith_integration_example.py)**
-- **[Smith Build Instructions](README.md#smith-build-system)**
+- **[Contact Models](smith-models/README.md)** - 8 validated contact test cases
 - **[Basic Optimizer](smith_ml_optimizer.py)** - Standalone Ax/BoTorch wrapper
 
-**Note:** Smith cannot be built in Claude Code web environment due to network restrictions. Use local development environment for Smith builds.
+### Quick Start
+
+**macOS (Docker):**
+```bash
+# Build Smith
+./build/docker/build-smith-macos.sh
+
+# Build and run a contact model
+./build/scripts/build-model.sh die-on-slab
+./build/scripts/run-model.sh die-on-slab
+```
+
+**LLNL HPC (Singularity):**
+```bash
+# Build Smith
+./build/hpc/build-smith-llnl.sh --system quartz
+
+# Build and run a contact model
+./build/scripts/build-model.sh die-on-slab
+./build/scripts/run-model.sh die-on-slab --np 4
+```
+
+**See [build/BUILD.md](build/BUILD.md) for complete documentation.**
 
 ---
 
