@@ -46,12 +46,21 @@ class ObjectiveGP:
         )
 
         # Create SingleTaskGP with custom likelihood
-        self.model = SingleTaskGP(
-            train_X=train_X,
-            train_Y=train_Y,
-            likelihood=likelihood,
-            outcome_transform=Standardize(m=1),
-        )
+        # Only use Standardize transform if we have more than 1 sample
+        if train_X.shape[0] > 1:
+            self.model = SingleTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                likelihood=likelihood,
+                outcome_transform=Standardize(m=1),
+            )
+        else:
+            # For single sample, don't use outcome transform
+            self.model = SingleTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                likelihood=likelihood,
+            )
 
         # Configure Matérn-5/2 kernel with ARD
         self.model.covar_module = ScaleKernel(
@@ -183,7 +192,8 @@ class FailureClassifier:
             train_Y: Binary failure labels (0=success, 1=failure)
         """
         self.train_X = train_X
-        self.train_Y = train_Y
+        # Ensure train_Y is 1D for Bernoulli likelihood
+        self.train_Y = train_Y.squeeze()
 
         # Create model and likelihood
         self.model = FailureClassifierGP(train_X)
@@ -272,9 +282,15 @@ class DualGPSystem:
         self.failure_labels = failure_labels
 
         # Split data for objective GP (successful trials only)
-        success_mask = failure_labels == 0
+        # Squeeze failure_labels to ensure 1D tensor for boolean indexing
+        failure_labels_1d = failure_labels.squeeze()
+        success_mask = failure_labels_1d == 0
         self.train_X_success = train_X[success_mask]
         self.train_Y_success = train_Y[success_mask]
+
+        # Track counts
+        self.n_successes = int(success_mask.sum())
+        self.n_failures = int((~success_mask).sum())
 
         # Initialize models
         if len(self.train_X_success) > 0:
@@ -298,11 +314,83 @@ class DualGPSystem:
         # Train failure classifier
         self.failure_classifier.train_model()
 
-    def predict(
+    def train_models(self, gp_restarts: int = 5, classifier_epochs: int = 200):
+        """
+        Train both GPs with detailed control over training parameters.
+
+        Args:
+            gp_restarts: Number of restarts for objective GP hyperparameter optimization
+            classifier_epochs: Number of training epochs for failure classifier
+        """
+        # Train objective GP (if we have successful trials)
+        if self.objective_gp is not None:
+            self.objective_gp.optimize_hyperparameters(num_restarts=gp_restarts)
+
+        # Train failure classifier
+        self.failure_classifier.train_model(num_epochs=classifier_epochs)
+
+    def predict_objective(self, test_X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Predict objective function values.
+
+        Args:
+            test_X: Test inputs
+
+        Returns:
+            Tuple of (mean, variance) predictions
+        """
+        if self.objective_gp is not None:
+            return self.objective_gp.predict(test_X)
+        else:
+            # Return dummy predictions if no objective GP
+            return torch.zeros(test_X.shape[0]), torch.ones(test_X.shape[0])
+
+    def predict_failure_probability(self, test_X: torch.Tensor) -> torch.Tensor:
+        """
+        Predict failure probability (without uncertainty).
+
+        Args:
+            test_X: Test inputs
+
+        Returns:
+            Failure probability tensor
+        """
+        failure_prob, _ = self.failure_classifier.predict_failure_probability(test_X)
+        return failure_prob
+
+    def predict(self, test_X: torch.Tensor) -> dict:
+        """
+        Predict both objective and failure probability.
+
+        Args:
+            test_X: Test inputs
+
+        Returns:
+            Dictionary with keys: 'objective_mean', 'objective_variance',
+            'failure_probability', 'success_probability'
+        """
+        # Predict objective
+        if self.objective_gp is not None:
+            obj_mean, obj_var = self.objective_gp.predict(test_X)
+        else:
+            obj_mean, obj_var = None, None
+
+        # Predict failure probability
+        failure_prob, failure_unc = self.failure_classifier.predict_failure_probability(test_X)
+        success_prob = 1.0 - failure_prob
+
+        return {
+            'objective_mean': obj_mean,
+            'objective_variance': obj_var,
+            'failure_probability': failure_prob,
+            'success_probability': success_prob,
+        }
+
+    def predict_with_uncertainty(
         self, test_X: torch.Tensor
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor, torch.Tensor]:
         """
-        Predict both objective and failure probability.
+        Predict both objective and failure probability with uncertainty.
 
         Args:
             test_X: Test inputs

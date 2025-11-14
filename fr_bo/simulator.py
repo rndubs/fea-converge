@@ -28,6 +28,24 @@ class SimulationResult:
     residual_history: Optional[List[float]] = None
     active_set_sizes: Optional[List[int]] = None
 
+    @property
+    def objective_value(self) -> float:
+        """
+        Compute objective value from simulation result.
+
+        For minimization: lower is better. We want to minimize residual and iterations.
+        """
+        if not self.converged:
+            # Failed simulations get a penalty
+            return float('inf')
+        # Objective combines residual and iteration count
+        return self.final_residual + 0.01 * self.iterations
+
+    @property
+    def failed(self) -> bool:
+        """Return True if simulation failed (did not converge or severe instability)."""
+        return not self.converged or self.severe_instability
+
     def __post_init__(self):
         """Ensure bool types are Python bools, not NumPy bools."""
         self.converged = bool(self.converged)

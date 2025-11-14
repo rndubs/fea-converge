@@ -6,7 +6,6 @@ import numpy as np
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass
 import pickle
-import json
 
 from ..models.gp_models import ObjectiveGP, ConstraintGP
 from ..acquisition.config_acquisition import CONFIGAcquisition

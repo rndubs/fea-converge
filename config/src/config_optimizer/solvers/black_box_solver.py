@@ -5,7 +5,7 @@ Provides synthetic test functions that mimic FEA convergence behavior.
 """
 
 import numpy as np
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 

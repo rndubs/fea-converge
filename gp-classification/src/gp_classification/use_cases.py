@@ -7,7 +7,7 @@ Includes:
 - Pre-simulation validation pipeline
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -46,7 +46,7 @@ class ParameterSuggester:
 
     def suggest_parameters(
         self, geometry_features: Optional[Dict[str, float]] = None
-    ) -> List[Dict[str, any]]:
+    ) -> List[Dict[str, Any]]:
         """
         Suggest initial parameters for a new geometry.
 
@@ -218,7 +218,7 @@ class PreSimulationValidator:
         self.min_convergence_prob = min_convergence_prob
         self.n_neighbors = n_neighbors
 
-    def validate(self, parameters: Dict[str, float]) -> Dict[str, any]:
+    def validate(self, parameters: Dict[str, float]) -> Dict[str, Any]:
         """
         Validate parameters through multi-stage pipeline.
 
