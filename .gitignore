@@ -8,7 +8,9 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+# Python build artifacts (but allow build/ directory with shell scripts)
+*/build/
+**/build/*.py
 develop-eggs/
 dist/
 downloads/

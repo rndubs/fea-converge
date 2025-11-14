@@ -164,38 +164,57 @@ This repository provides **four distinct Bayesian optimization methods** for res
 
 ## Smith Build System
 
-The `./smith` directory contains submodules and build scripts for the Smith/Serac finite element solver framework.
+The repository includes a **consolidated build system** for Smith and contact models, supporting both macOS (Docker) and LLNL HPC (Singularity) environments.
 
-### Build Prerequisites (Installed)
+### Build System Structure
 
-The following dependencies are installed and verified:
-- **CMake 3.28.3** - Build system generator
-- **Python 3.11.14** - Required for uberenv build scripts
-- **GCC 13.3.0** - C/C++ compiler
-- **gfortran 13.3.0** - Fortran compiler
-- **MPICH 4.2.0** - MPI implementation
-- **Clang 18.1.3** - Alternative compiler (optional)
+```
+build/
+├── BUILD.md                  # Complete build documentation
+├── docker/                   # macOS container builds
+│   └── build-smith-macos.sh  # Docker-based Smith build
+├── hpc/                      # LLNL HPC builds
+│   └── build-smith-llnl.sh   # Singularity-based Smith build
+└── scripts/                  # Model compilation and execution
+    ├── build-model.sh        # Compile contact models
+    └── run-model.sh          # Run simulations
+```
 
-### Build Status
+### Quick Start
 
-✅ **Prerequisites installed and verified**
+**macOS (Docker):**
+```bash
+./build/docker/build-smith-macos.sh
+./build/scripts/build-model.sh die-on-slab
+./build/scripts/run-model.sh die-on-slab
+```
 
-⚠️ **Remaining Limitation:**
+**LLNL HPC (Singularity):**
+```bash
+./build/hpc/build-smith-llnl.sh --system quartz
+./build/scripts/build-model.sh die-on-slab
+./build/scripts/run-model.sh die-on-slab --np 4
+```
 
-The Smith build system **cannot complete in Claude Code for the Web environments** due to network access restrictions. Building Smith requires:
-- Network access to download Spack dependencies
-- Access to external package repositories
-- Ability to fetch TPL (Third-Party Library) sources
+### Available Contact Models
 
-The `build_smith.sh` script will successfully check all prerequisites and begin the build process, but will fail when uberenv attempts to clone Spack repositories and download dependencies.
+8 validated contact test cases in `smith-models/`:
+- **die-on-slab**, **block-on-slab**, **sphere-in-sphere** (Puso & Laursen 2003)
+- **stacked-blocks**, **hemisphere-twisting**, **concentric-spheres**, **deep-indentation**, **hollow-sphere-pinching** (Zimmerman & Ateshian 2018)
 
-### Build Documentation
+### Build Environment Support
 
-See `SMITH_BUILD_STATUS.md` for:
-- Complete list of fixed issues
-- Current system configuration
-- Alternative build approaches for restricted environments
-- Instructions for using Spack mirrors or pre-built TPLs
+✅ **macOS**: Docker with pre-built TPLs (no network dependency issues)
+✅ **LLNL HPC**: Singularity containers or native builds
+⚠️ **Claude Code Web**: Cannot build Smith due to network restrictions (use Docker images locally)
+
+### Complete Documentation
+
+See **[build/BUILD.md](build/BUILD.md)** for:
+- Detailed build instructions for all platforms
+- Troubleshooting guide
+- Advanced configuration options
+- Integration with Bayesian optimization methods
 
 ---
 
@@ -229,12 +248,29 @@ fea-converge/
 │   ├── acquisition.py
 │   └── ... (13 files total)   # Tests/examples/docs needed
 │
+├── build/                      # ✅ Consolidated Build System
+│   ├── BUILD.md                # Complete build documentation
+│   ├── docker/                 # macOS container builds
+│   │   └── build-smith-macos.sh
+│   ├── hpc/                    # LLNL HPC builds
+│   │   └── build-smith-llnl.sh
+│   └── scripts/                # Model compilation and execution
+│       ├── build-model.sh
+│       └── run-model.sh
+│
+├── smith/                      # Smith FEA submodule
+├── smith-models/               # ✅ 8 validated contact test cases
+│   ├── README.md
+│   ├── die-on-slab/
+│   ├── block-on-slab/
+│   ├── sphere-in-sphere/
+│   └── ... (5 more models)
+│
 ├── future_methods/             # 📚 OLD PLANNING DOCS (mostly superseded)
 │   ├── fr-bo/                  # Old FR-BO plan (use /fr_bo/ instead)
 │   ├── gp-classification/      # Old plan (implemented in /gp-classification/)
 │   └── shebo/                  # Old plan (implemented in /shebo/)
 │
-├── smith/                      # Smith FEA submodule
 ├── README.md                   # Main project README (4-method overview)
 ├── PROJECT_SCOPE.md            # Project scoping and evolution
 ├── RESEARCH.md                 # Technical documentation (all methods)
