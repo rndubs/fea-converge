@@ -19,6 +19,8 @@ This repository provides **four distinct Bayesian optimization methods** for res
 
 ---
 
+DO NOT WRITE MARKDOWN FILES UNLESS EXPLICITLY PROMPTED!
+
 ## Method 1: CONFIG - Constrained Efficient Global Optimization ⭐
 
 **Location:** `config/`
