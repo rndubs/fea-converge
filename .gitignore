@@ -206,3 +206,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 smith_tpls/
+
+# Repo-specific directories
+smith-build/
+smith-install/
+build_*/
