@@ -52,12 +52,12 @@ int main(int argc, char* argv[])
                                                   .max_iterations = 200,
                                                   .print_level = 1};
 
-  // Contact options with friction
+  // Contact options (Note: Current Smith version doesn't support friction)
+  // Using frictionless contact as a placeholder until friction is implemented
   smith::ContactOptions contact_options{.method = smith::ContactMethod::SingleMortar,
                                         .enforcement = smith::ContactEnforcement::Penalty,
-                                        .type = smith::ContactType::Friction,
+                                        .type = smith::ContactType::Frictionless,
                                         .penalty = 5.0e2,
-                                        .friction_coeff = 0.3,  // Coulomb friction coefficient
                                         .jacobian = smith::ContactJacobian::Exact};
 
   smith::SolidMechanicsContact<p, dim, smith::Parameters<smith::L2<0>, smith::L2<0>>> solid_solver(

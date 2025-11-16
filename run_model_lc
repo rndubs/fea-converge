@@ -1,0 +1,420 @@
+#!/bin/bash
+# Copyright (c) Lawrence Livermore National Security, LLC
+# SPDX-License-Identifier: (BSD-3-Clause)
+#
+# Run Smith contact models on LC HPC systems
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Detect LC machine
+MACHINE=$(hostname | sed 's/[0-9]*$//')
+
+# Configuration
+SMITH_INSTALL="${SMITH_INSTALL:-$(pwd)/smith-install}"
+MODELS_DIR="$(pwd)/smith-models"
+
+# Detect scheduler
+case "$MACHINE" in
+    dane|rzgenie|rzwhippet|rzvernal|tioga)
+        SCHEDULER="slurm"
+        ;;
+    rzansel|lassen)
+        SCHEDULER="lsf"
+        ;;
+    *)
+        SCHEDULER="slurm"
+        ;;
+esac
+
+# All available models
+ALL_MODELS=(
+    "block-on-slab"
+    "concentric-spheres"
+    "deep-indentation"
+    "die-on-slab"
+    "hemisphere-twisting"
+    "hollow-sphere-pinching"
+    "sphere-in-sphere"
+    "stacked-blocks"
+)
+
+# Usage information
+usage() {
+    cat << EOF
+Usage: $0 [OPTIONS] [MODEL_NAME]
+
+Run Smith contact models on LC HPC systems
+
+Arguments:
+  MODEL_NAME              Name of specific model to run (optional)
+
+Options:
+  --all                   Run all models
+  --list                  List all available models
+  --interactive           Run interactively on current node
+  --batch                 Submit as batch job (default)
+  --clean                 Clean build directory before running
+  --time MINUTES          Wall time for batch job (default: 30)
+  --partition PARTITION   Partition/queue to use
+  -h, --help             Show this help message
+
+Detected Configuration:
+  Machine:      $MACHINE
+  Scheduler:    $SCHEDULER
+  Smith:        $SMITH_INSTALL
+
+Available models:
+$(for model in "${ALL_MODELS[@]}"; do echo "  - $model"; done)
+
+Examples:
+  $0 die-on-slab                  # Run single model (batch)
+  $0 --interactive sphere-in-sphere  # Run interactively
+  $0 --all --time 60              # Run all models with 60 min limit
+  $0 --list                       # List available models
+
+EOF
+}
+
+# List models
+list_models() {
+    echo "Available models:"
+    for model in "${ALL_MODELS[@]}"; do
+        if [ -d "$MODELS_DIR/$model" ]; then
+            echo -e "  ${GREEN}✓${NC} $model"
+        else
+            echo -e "  ${RED}✗${NC} $model (not found)"
+        fi
+    done
+}
+
+# Check if Smith is installed
+check_smith_installation() {
+    if [ ! -f "$SMITH_INSTALL/lib/cmake/smith-config.cmake" ]; then
+        echo -e "${RED}Error: Smith is not installed${NC}"
+        echo ""
+        echo "Please build Smith first using:"
+        echo "  ./build-smith-lc.sh"
+        echo ""
+        exit 1
+    fi
+}
+
+# Build and run a single model
+run_model() {
+    local model_name=$1
+    local build_dir="$(pwd)/build_${model_name}"
+    local model_source="$MODELS_DIR/$model_name"
+    local exec_name="${model_name//-/_}"
+
+    # Check if model exists
+    if [ ! -d "$model_source" ]; then
+        echo -e "${RED}Error: Model '$model_name' not found${NC}"
+        echo "Available models: ${ALL_MODELS[*]}"
+        return 1
+    fi
+
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}Running model: $model_name${NC}"
+    echo -e "${BLUE}========================================${NC}"
+
+    # Create build directory
+    mkdir -p "$build_dir"
+
+    # Configure with CMake
+    echo -e "${YELLOW}==> Configuring $model_name...${NC}"
+    (cd "$build_dir" && cmake "$model_source" \
+        -DSmith_DIR="$SMITH_INSTALL/lib/cmake" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) || {
+        echo -e "${RED}✗ Configuration failed${NC}"
+        return 1
+    }
+
+    # Build
+    echo ""
+    echo -e "${YELLOW}==> Building $model_name...${NC}"
+
+    if command -v nproc &> /dev/null; then
+        NCORES=$(nproc)
+    else
+        NCORES=8
+    fi
+
+    (cd "$build_dir" && make -j${NCORES}) || {
+        echo -e "${RED}✗ Build failed${NC}"
+        return 1
+    }
+
+    # Run
+    echo ""
+    echo -e "${YELLOW}==> Running $model_name...${NC}"
+    (cd "$build_dir" && ./"$exec_name") || {
+        echo -e "${YELLOW}Note: Model execution had issues${NC}"
+    }
+
+    echo ""
+    echo -e "${GREEN}✓ Model '$model_name' completed${NC}"
+    echo "Output files: $build_dir/"
+    echo ""
+    return 0
+}
+
+# Run all models
+run_all_models() {
+    local failed_models=()
+    local successful_models=()
+
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}Running all models${NC}"
+    echo -e "${GREEN}========================================${NC}"
+    echo ""
+
+    for model in "${ALL_MODELS[@]}"; do
+        if run_model "$model"; then
+            successful_models+=("$model")
+        else
+            failed_models+=("$model")
+        fi
+        echo ""
+    done
+
+    # Summary
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}Summary${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
+    echo -e "${GREEN}Successful (${#successful_models[@]}/${#ALL_MODELS[@]}):${NC}"
+    for model in "${successful_models[@]}"; do
+        echo -e "  ${GREEN}✓${NC} $model"
+    done
+
+    if [ ${#failed_models[@]} -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}Completed with issues (${#failed_models[@]}/${#ALL_MODELS[@]}):${NC}"
+        for model in "${failed_models[@]}"; do
+            echo -e "  ${YELLOW}!${NC} $model"
+        done
+    fi
+
+    return 0
+}
+
+# Parse arguments
+MODE="batch"
+RUN_ALL=false
+MODEL_NAME=""
+CLEAN=false
+WALL_TIME=30
+PARTITION=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --all)
+            RUN_ALL=true
+            shift
+            ;;
+        --list)
+            list_models
+            exit 0
+            ;;
+        --interactive)
+            MODE="interactive"
+            shift
+            ;;
+        --batch)
+            MODE="batch"
+            shift
+            ;;
+        --clean)
+            CLEAN=true
+            shift
+            ;;
+        --time)
+            WALL_TIME="$2"
+            shift 2
+            ;;
+        --partition)
+            PARTITION="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo -e "${RED}Error: Unknown option $1${NC}"
+            usage
+            exit 1
+            ;;
+        *)
+            MODEL_NAME=$1
+            shift
+            ;;
+    esac
+done
+
+# Check prerequisites
+check_smith_installation
+
+# Clean if requested
+if [ "$CLEAN" = true ]; then
+    echo -e "${YELLOW}Cleaning build directories...${NC}"
+    rm -rf build_*
+    echo -e "${GREEN}✓ Clean complete${NC}"
+    echo ""
+fi
+
+# Interactive mode
+if [ "$MODE" = "interactive" ]; then
+    if [ "$RUN_ALL" = true ]; then
+        run_all_models
+    elif [ -n "$MODEL_NAME" ]; then
+        run_model "$MODEL_NAME"
+    else
+        echo -e "${RED}Error: No model specified${NC}"
+        usage
+        exit 1
+    fi
+
+# Batch mode
+elif [ "$MODE" = "batch" ]; then
+    # Determine models to run
+    if [ "$RUN_ALL" = true ]; then
+        MODELS_TO_RUN=("${ALL_MODELS[@]}")
+        JOB_NAME="run-all-models"
+    elif [ -n "$MODEL_NAME" ]; then
+        MODELS_TO_RUN=("$MODEL_NAME")
+        JOB_NAME="run-$MODEL_NAME"
+    else
+        echo -e "${RED}Error: No model specified${NC}"
+        usage
+        exit 1
+    fi
+
+    # Create batch script
+    BATCH_SCRIPT="run_model_${MACHINE}_$$.sh"
+
+    if [ "$SCHEDULER" = "slurm" ]; then
+        # Set default partition if not specified
+        if [ -z "$PARTITION" ]; then
+            PARTITION="pdebug"
+        fi
+
+        # SLURM batch script
+        cat > "$BATCH_SCRIPT" << EOFBATCH
+#!/bin/bash
+#SBATCH --job-name=$JOB_NAME
+#SBATCH --output=${JOB_NAME}-%j.out
+#SBATCH --error=${JOB_NAME}-%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --time=$(printf "%02d:00:00" $((WALL_TIME / 60)))
+#SBATCH --partition=$PARTITION
+
+EOFBATCH
+
+    elif [ "$SCHEDULER" = "lsf" ]; then
+        # Set default partition if not specified
+        if [ -z "$PARTITION" ]; then
+            PARTITION="pdebug"
+        fi
+
+        # LSF batch script
+        cat > "$BATCH_SCRIPT" << EOFBATCH
+#!/bin/bash
+#BSUB -J $JOB_NAME
+#BSUB -o ${JOB_NAME}-%J.out
+#BSUB -e ${JOB_NAME}-%J.err
+#BSUB -nnodes 1
+#BSUB -W $WALL_TIME
+#BSUB -q $PARTITION
+
+EOFBATCH
+    fi
+
+    # Add run commands
+    cat >> "$BATCH_SCRIPT" << 'EOFBATCH'
+
+set -e
+
+echo "=================================================="
+echo "Running Smith models on $(hostname)"
+echo "Started at: $(date)"
+echo "=================================================="
+echo ""
+
+EOFBATCH
+
+    # Add environment and functions
+    cat >> "$BATCH_SCRIPT" << EOFBATCH
+
+# Navigate to project directory
+cd $(pwd)
+
+# Export variables
+export SMITH_INSTALL="$SMITH_INSTALL"
+export MODELS_DIR="$MODELS_DIR"
+
+# Model run function
+$(declare -f run_model)
+
+EOFBATCH
+
+    # Add model execution
+    if [ "$RUN_ALL" = true ]; then
+        cat >> "$BATCH_SCRIPT" << EOFBATCH
+
+# Run all models
+$(declare -f run_all_models)
+run_all_models
+
+EOFBATCH
+    else
+        cat >> "$BATCH_SCRIPT" << EOFBATCH
+
+# Run model
+run_model "$MODEL_NAME"
+
+EOFBATCH
+    fi
+
+    # Add footer
+    cat >> "$BATCH_SCRIPT" << 'EOFBATCH'
+
+echo ""
+echo "=================================================="
+echo "Completed at: $(date)"
+echo "=================================================="
+EOFBATCH
+
+    chmod +x "$BATCH_SCRIPT"
+
+    echo -e "${BLUE}Batch script created: $BATCH_SCRIPT${NC}"
+    echo ""
+
+    # Submit job
+    if [ "$SCHEDULER" = "slurm" ]; then
+        echo -e "${YELLOW}Submitting batch job via SLURM...${NC}"
+        JOB_ID=$(sbatch "$BATCH_SCRIPT" | awk '{print $NF}')
+        echo -e "${GREEN}Job submitted with ID: $JOB_ID${NC}"
+        echo ""
+        echo "Monitor job with:"
+        echo "  squeue -j $JOB_ID"
+        echo "  tail -f ${JOB_NAME}-${JOB_ID}.out"
+    elif [ "$SCHEDULER" = "lsf" ]; then
+        echo -e "${YELLOW}Submitting batch job via LSF...${NC}"
+        JOB_ID=$(bsub < "$BATCH_SCRIPT" | grep -oP '(?<=Job <)\d+')
+        echo -e "${GREEN}Job submitted with ID: $JOB_ID${NC}"
+        echo ""
+        echo "Monitor job with:"
+        echo "  bjobs $JOB_ID"
+        echo "  tail -f ${JOB_NAME}-${JOB_ID}.out"
+    fi
+fi

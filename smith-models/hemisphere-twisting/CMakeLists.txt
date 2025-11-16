@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(hemisphere_twisting LANGUAGES CXX)
+project(hemisphere_twisting LANGUAGES C CXX)
 
 # Find Smith
 find_package(Smith REQUIRED)

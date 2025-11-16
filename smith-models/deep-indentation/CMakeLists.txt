@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(deep_indentation LANGUAGES CXX)
+project(deep_indentation LANGUAGES C CXX)
 
 # Find Smith
 find_package(Smith REQUIRED)

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(hollow_sphere_pinching LANGUAGES CXX)
+project(hollow_sphere_pinching LANGUAGES C CXX)
 
 # Find Smith
 find_package(Smith REQUIRED)

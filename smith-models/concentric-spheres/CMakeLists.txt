@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(concentric_spheres LANGUAGES CXX)
+project(concentric_spheres LANGUAGES C CXX)
 
 # Find Smith
 find_package(Smith REQUIRED)

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(stacked_blocks LANGUAGES CXX)
+project(stacked_blocks LANGUAGES C CXX)
 
 # Find Smith
 find_package(Smith REQUIRED)
